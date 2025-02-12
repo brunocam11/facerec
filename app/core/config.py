@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     MIN_FACE_CONFIDENCE: float = 0.9
     SIMILARITY_THRESHOLD: float = 0.8
     MODEL_CACHE_DIR: str = ".model_cache"
-    MAX_IMAGE_PIXELS: int = 1920 * 1080
+    MAX_IMAGE_PIXELS: int = 1920 * 1080  # ~2MP (Full HD)
     MAX_MATCHES: int = 100  # Maximum number of matches to return from search
     
     # API Settings
@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     POSTGRES_POOL_SIZE: int = 5
     POSTGRES_MAX_OVERFLOW: int = 10
     POSTGRES_POOL_TIMEOUT: int = 30
+
+    # Image Processing Settings
+    JPEG_QUALITY: int = 85  # Good balance of quality/size
 
     @property
     def database_url(self) -> str:

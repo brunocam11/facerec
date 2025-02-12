@@ -53,6 +53,7 @@ from app.domain.value_objects.recognition import (
     FaceMatch,
     SearchResult,
 )
+import math
 
 logger = get_logger(__name__)
 
@@ -78,33 +79,14 @@ class InsightFaceRecognitionService(FaceRecognitionService):
     """
 
     def __init__(self) -> None:
-        """
-        Initialize InsightFace model and prepare it for inference.
-
-        The model is configured for CPU inference by default. For GPU support,
-        add 'CUDAExecutionProvider' to the providers list.
-
-        Raises:
-            RuntimeError: If model initialization fails
-        """
-        try:
-            self.model = FaceAnalysis(
-                allowed_modules=['detection', 'recognition'],
-                providers=['CPUExecutionProvider']
-            )
-            self.model.prepare(ctx_id=0, det_size=(640, 640))
-            logger.info(
-                "InsightFace service initialized",
-                det_size=(640, 640)
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to initialize InsightFace service",
-                error=str(e),
-                exc_info=True
-            )
-            raise RuntimeError(
-                f"Failed to initialize InsightFace model: {str(e)}")
+        """Initialize InsightFace model with optimal settings."""
+        self.model = FaceAnalysis(
+            name="buffalo_l",  # Using the large model for better accuracy
+            root=settings.MODEL_CACHE_DIR,
+            providers=['CPUExecutionProvider']
+        )
+        # Detection size affects accuracy significantly
+        self.model.prepare(ctx_id=0, det_size=(640, 640))
 
     async def __aenter__(self) -> T:
         """Enter async context, ensuring resources are ready.
@@ -135,74 +117,41 @@ class InsightFaceRecognitionService(FaceRecognitionService):
         self.model = None
 
     async def _load_and_validate_image(self, image_bytes: bytes) -> np.ndarray:
-        """
-        Load and validate image bytes into numpy array.
-
-        This method handles image decoding and validation, ensuring the image
-        meets size requirements and can be processed by the model.
-
-        Args:
-            image_bytes: Raw image data in bytes format
-
-        Returns:
-            np.ndarray: Image array in BGR format (height, width, 3)
-
-        Raises:
-            InvalidImageError: If image format is invalid or decoding fails
-            ImageTooLargeError: If image dimensions exceed MAX_IMAGE_PIXELS
-        """
+        """Load and optimize image for face detection."""
         try:
-            logger.debug(
-                "Loading image",
-                bytes_length=len(image_bytes)
-            )
-
             # Decode image bytes to numpy array
             nparr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
             if img is None:
-                logger.error("Failed to decode image")
                 raise InvalidImageError("Failed to decode image")
 
-            logger.debug(
-                "Image loaded successfully",
-                shape=img.shape,
-                dtype=img.dtype,
-                min_val=float(img.min()),
-                max_val=float(img.max())
-            )
+            height, width = img.shape[:2]
+            pixels = width * height
 
-            # Validate image dimensions
-            if img.shape[0] * img.shape[1] > settings.MAX_IMAGE_PIXELS:
-                logger.error(
-                    "Image too large",
-                    pixels=img.shape[0] * img.shape[1],
-                    max_pixels=settings.MAX_IMAGE_PIXELS
+            # Only resize if image is too large
+            if pixels > settings.MAX_IMAGE_PIXELS:
+                scale = math.sqrt(settings.MAX_IMAGE_PIXELS / pixels)
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                
+                logger.info(
+                    "Resizing large image",
+                    original_size=(width, height),
+                    new_size=(new_width, new_height)
                 )
-                raise ImageTooLargeError(
-                    f"Image too large. Max pixels: {settings.MAX_IMAGE_PIXELS}"
+                
+                img = cv2.resize(
+                    img, 
+                    (new_width, new_height), 
+                    interpolation=cv2.INTER_AREA
                 )
-
-            # Ensure image is in BGR format (OpenCV default)
-            if len(img.shape) != 3 or img.shape[2] != 3:
-                logger.error(
-                    "Invalid image format",
-                    shape=img.shape,
-                    channels=img.shape[2] if len(img.shape) > 2 else 1
-                )
-                raise InvalidImageError(
-                    "Image must be in BGR format with 3 channels")
 
             return img
 
         except Exception as e:
-            logger.error(
-                "Image loading failed",
-                error=str(e),
-                exc_info=True
-            )
-            if isinstance(e, (InvalidImageError, ImageTooLargeError)):
+            logger.error("Image loading failed", error=str(e))
+            if isinstance(e, InvalidImageError):
                 raise
             raise InvalidImageError(f"Invalid image format: {str(e)}")
 
