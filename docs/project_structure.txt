@@ -1,0 +1,43 @@
+facial_recognition_service/
+├── app/
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── routes/
+│   │   │   ├── __init__.py
+│   │   │   └── recognition.py
+│   │   └── schemas/
+│   │       ├── __init__.py
+│   │       └── recognition.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   └── exceptions.py
+│   ├── domain/
+│   │   ├── __init__.py
+│   │   ├── entities/
+│   │   │   ├── __init__.py
+│   │   │   └── face.py
+│   │   └── interfaces/
+│   │       ├── __init__.py
+│   │       ├── face_recognition.py
+│   │       └── face_storage.py
+│   ├── infrastructure/
+│   │   ├── __init__.py
+│   │   ├── recognition/
+│   │   │   ├── __init__.py
+│   │   │   └── insight_face_recognizer.py
+│   │   └── storage/
+│   │       ├── __init__.py
+│   │       └── postgres_storage.py
+│   └── services/
+│       ├── __init__.py
+│       └── recognition_service.py
+├── tests/
+│   ├── __init__.py
+│   ├── integration/
+│   └── unit/
+├── alembic/
+│   └── versions/
+├── docker/
+├── requirements.txt
+└── main.py 
