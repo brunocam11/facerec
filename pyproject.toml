@@ -20,6 +20,8 @@ pinecone-client = "^5.0.1"
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.37"}
 asyncpg = "^0.30.0"
 alembic = "^1.14.1"
+opencv-python-headless = "^4.11.0.86"
+numpy = "^2.2.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
@@ -29,6 +31,9 @@ black = "^24.10.0"
 isort = "^5.13.2"
 mypy = "^1.14.1"
 ruff = "^0.9.1"
+
+[tool.poetry.scripts]
+detect-faces = "app.cli.detect_faces:main"
 
 [build-system]
 requires = ["poetry-core"]

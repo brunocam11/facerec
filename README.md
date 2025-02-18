@@ -66,6 +66,20 @@ For database changes:
 2. Generate migration: `alembic revision --autogenerate -m "Description"`
 3. Apply migration: `alembic upgrade head`
 
+## Running Tests
+
+Run tests:
+```bash
+pytest
+```
+
+Run tests with detailed output:
+```bash
+pytest -s
+```
+
+The `-s` flag shows print statements and detailed output, which is useful for debugging. Running without `-s` gives a cleaner output focused on test results.
+
 ## License
 
 MIT License - See LICENSE file 

@@ -81,7 +81,7 @@ class InsightFaceRecognitionService(FaceRecognitionService):
     def __init__(self) -> None:
         """Initialize InsightFace model with optimal settings."""
         self.model = FaceAnalysis(
-            name="buffalo_l",  # Using the large model for better accuracy
+            name="buffalo_l",
             root=settings.MODEL_CACHE_DIR,
             providers=['CPUExecutionProvider']
         )
@@ -254,9 +254,9 @@ class InsightFaceRecognitionService(FaceRecognitionService):
         Detect faces with non-blocking processing.
         """
         img = await self._load_and_validate_image(image_bytes)
-        # This won't block the event loop
+        
         faces = await self._process_image(img, max_faces)
-        # This processing is light enough to do in the main thread
+        
         return DetectionResult(
             faces=[self._convert_to_face(face) for face in faces]
         )
