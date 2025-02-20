@@ -31,37 +31,17 @@ app.add_middleware(
 # Include API routers
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
-@app.exception_handler(FaceRecognitionError)
-async def face_rec_exception_handler(request: Request, exc: FaceRecognitionError) -> JSONResponse:
-    """Handle FaceRecError exceptions.
-    
-    Args:
-        request: FastAPI request
-        exc: FaceRecError instance
-        
-    Returns:
-        JSONResponse: Error response
-    """
-    logger.error(
-        "Request failed",
-        error=str(exc),
-        status_code=exc.status_code,
-        path=request.url.path,
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.message, "details": exc.details},
-    )
 
 @app.get("/health")
 async def health_check() -> dict:
     """Basic health check endpoint.
-    
+
     Returns:
         dict: Health status
     """
     logger.info("Health check requested")
     return {"status": "healthy"}
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -72,7 +52,8 @@ async def startup_event() -> None:
         environment=settings.ENVIRONMENT,
     )
 
+
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Run shutdown tasks."""
-    logger.info("Shutting down facial recognition service") 
+    logger.info("Shutting down facial recognition service")

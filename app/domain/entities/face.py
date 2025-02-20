@@ -1,7 +1,6 @@
 """Face domain entities."""
 from dataclasses import dataclass
 from typing import Optional
-from uuid import UUID
 
 import numpy as np
 from pydantic import BaseModel
@@ -26,8 +25,8 @@ class Face:
 @dataclass
 class FaceRecord:
     """Face record stored in the system."""
-    face_id: UUID
-    collection_id: UUID
-    external_image_id: Optional[str]
+    face_id: str  # External system face identifier
+    collection_id: str  # External system collection identifier
+    external_image_id: Optional[str]  # External system image identifier
     confidence: float
     embedding: np.ndarray 

@@ -55,7 +55,6 @@ POSTGRES_DB=facerec
 
 # Vector Store (Pinecone)
 PINECONE_API_KEY=your_key
-PINECONE_ENVIRONMENT=gcp-starter
 PINECONE_INDEX_NAME=face-recognition
 ```
 
