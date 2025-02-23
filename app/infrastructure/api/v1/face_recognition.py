@@ -32,6 +32,13 @@ from app.domain.value_objects.recognition import (
 )
 from app.infrastructure.storage.pinecone import PineconeVectorStore
 from app.services import InsightFaceRecognitionService
+from app.infrastructure.database.unit_of_work import UnitOfWork
+from app.infrastructure.dependencies import get_uow, get_indexing_service
+from app.services.face_indexing import (
+    FaceIndexingService,
+    IndexingResult,
+    FaceRecord
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -54,13 +61,9 @@ class DetectionResponse(BaseModel):
                                           description="List of detected faces")
 
 
-class IndexFacesResponse(BaseModel):
+class IndexFacesResponse(IndexingResult):
     """Response model for face indexing endpoint."""
-    face_records: List[FaceRecord] = Field(...,
-                                          description="List of indexed faces")
-    image_id: str = Field(..., description="ID of the processed image")
-    external_image_id: Optional[str] = Field(
-        None, description="External image reference")
+    pass
 
 
 @router.post(
@@ -75,79 +78,40 @@ async def index_faces(
     collection_id: str = Form(...),
     max_faces: int = Form(20),
     external_image_id: Optional[str] = Form(None),
-    face_service: InsightFaceRecognitionService = Depends(),
-    vector_store: PineconeVectorStore = Depends()
+    indexing_service: FaceIndexingService = Depends(get_indexing_service),
+    uow: UnitOfWork = Depends(get_uow)
 ) -> IndexFacesResponse:
     """Index faces from an image for later search.
-
-    This endpoint:
-    1. Detects faces in the uploaded image
-    2. Extracts face embeddings
-    3. Stores the embeddings in the vector database
-    4. Returns metadata about the indexed faces
-
+    
     Args:
         image: Image file containing faces to index
         collection_id: External system collection identifier
         max_faces: Maximum number of faces to index (default: 20)
         external_image_id: External image reference (optional)
-        face_service: Face recognition service instance
-        vector_store: Vector storage service instance
-
+        indexing_service: Face indexing service instance
+        uow: Unit of work for database operations
+        
     Returns:
         IndexFacesResponse containing the indexed face records
-
+        
     Raises:
         HTTPException: If image processing or storage fails
     """
     try:
         # Read image bytes
         image_bytes = await image.read()
-
-        # Generate internal UUIDs
-        internal_image_id = uuid.uuid4()
-
-        # Detect and extract embeddings for faces
-        faces = await face_service.get_faces_with_embeddings(
-            image_bytes,
-            max_faces=max_faces
-        )
-
-        face_records = []
-        # Store each face in the vector database
-        for face in faces:
-            # Generate internal UUID for face
-            internal_face_id = uuid.uuid4()
-
-            # Store in vector database using string representations
-            await vector_store.store_face(
-                face=face,
-                collection_id=collection_id,  # External ID stays as string
-                image_id=str(internal_image_id),
-                face_detection_id=str(internal_face_id)
-            )
-
-            # Create face record for response
-            face_records.append(FaceRecord(
-                face_id=str(internal_face_id),  # Convert UUID to string for external systems
-                bounding_box=face.bounding_box,
-                confidence=face.confidence,
-                external_image_id=external_image_id
-            ))
-
-        logger.info(
-            "Successfully indexed faces",
-            internal_image_id=internal_image_id,
+        
+        # Delegate to service
+        result = await indexing_service.index_faces(
+            image_bytes=image_bytes,
             collection_id=collection_id,
-            faces_count=len(face_records)
+            max_faces=max_faces,
+            external_image_id=external_image_id,
+            uow=uow
         )
-
-        return IndexFacesResponse(
-            face_records=face_records,
-            image_id=str(internal_image_id),  # Convert UUID to string for external systems
-            external_image_id=external_image_id
-        )
-
+        
+        return IndexFacesResponse(**result.__dict__)
+        
     except NoFaceDetectedError:
         raise HTTPException(
             status_code=400,
@@ -165,13 +129,13 @@ async def index_faces(
         )
     except Exception as e:
         logger.error(
-            "Unexpected error during face indexing",
+            "Face indexing failed",
             error=str(e),
             exc_info=True
         )
         raise HTTPException(
             status_code=500,
-            detail="An unexpected error occurred while processing the request"
+            detail="An unexpected error occurred"
         )
 
 
