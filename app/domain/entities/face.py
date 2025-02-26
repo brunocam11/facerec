@@ -34,18 +34,6 @@ class Face(BaseModel):
         return v
 
 
-class StoredFaceRecord(BaseModel):
-    """Face record stored in the vector database."""
-    face_id: str = Field(..., description="External system face identifier")
-    collection_id: str = Field(..., description="External system collection identifier")
-    external_image_id: Optional[str] = Field(None, description="External system image identifier")
-    confidence: float = Field(..., description="Confidence score of the detection")
-    embedding: np.ndarray = Field(..., description="Face embedding vector")
-
-    class Config:
-        arbitrary_types_allowed = True  # Allow numpy array
-
-
 class FaceRecord(BaseModel):
     """Face record returned by API operations."""
     face_id: str = Field(..., description="Unique identifier of the detected face")

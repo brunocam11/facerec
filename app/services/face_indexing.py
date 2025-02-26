@@ -2,11 +2,12 @@
 import uuid
 from typing import List, Optional
 
-from app.core.logging import get_logger
-from app.domain.entities.face import Face
 from app.api.models.face import FaceRecord, IndexFacesResponse
-from app.infrastructure.vectordb.models import VectorFaceRecord
+from app.core.logging import get_logger
+from app.domain.entities import BoundingBox
+from app.domain.entities.face import Face
 from app.infrastructure.vectordb import PineconeVectorStore
+from app.infrastructure.vectordb.models import VectorFaceRecord
 from app.services import InsightFaceRecognitionService
 
 logger = get_logger(__name__)
@@ -38,6 +39,10 @@ class FaceIndexingService:
     ) -> IndexFacesResponse:
         """Index faces from image bytes.
 
+        If the image_id already exists in the collection, returns the existing face records
+        without reprocessing the image. This ensures idempotency and prevents duplicate
+        processing of the same image.
+
         Args:
             image_id: Source image identifier
             image_bytes: Raw image bytes
@@ -47,7 +52,47 @@ class FaceIndexingService:
         Returns:
             IndexFacesResponse containing the indexed face records
         """
-        # Detect and extract embeddings
+        # Check if image was already processed
+        existing_faces, detection_id = await self._vector_store.get_faces_by_image_id(
+            image_id=image_id,
+            collection_id=collection_id
+        )
+
+        if existing_faces:
+            logger.info(
+                "Image already indexed, returning existing records",
+                image_id=image_id,
+                collection_id=collection_id,
+                faces_count=len(existing_faces),
+                detection_id=detection_id
+            )
+            # Convert vector records to API records
+            face_records = []
+            for face in existing_faces:
+                # Reconstruct bounding box from record
+                bounding_box = BoundingBox(
+                    left=face.bbox_left,
+                    top=face.bbox_top,
+                    width=face.bbox_width,
+                    height=face.bbox_height
+                )
+                face_records.append(FaceRecord(
+                    face_id=face.face_id,
+                    bounding_box=bounding_box,
+                    confidence=face.confidence,
+                    image_id=image_id
+                ))
+
+            return IndexFacesResponse(
+                face_records=face_records,
+                detection_id=detection_id,  # Use the original detection_id
+                image_id=image_id
+            )
+
+        # Generate new detection_id for new processing
+        detection_id = str(uuid.uuid4())
+
+        # Detect and extract embeddings for new image
         faces = await self._face_service.get_faces_with_embeddings(
             image_bytes,
             max_faces=max_faces
@@ -59,17 +104,19 @@ class FaceIndexingService:
             face_record = await self._store_face(
                 face=face,
                 collection_id=collection_id,
-                image_id=image_id
+                image_id=image_id,
+                detection_id=detection_id  # Pass the detection_id
             )
             face_records.append(face_record)
 
         logger.info(
             "Successfully indexed faces",
             collection_id=collection_id,
-            faces_count=len(face_records)
+            faces_count=len(face_records),
+            image_id=image_id,
+            detection_id=detection_id
         )
 
-        detection_id = str(uuid.uuid4())
         return IndexFacesResponse(
             face_records=face_records,
             detection_id=detection_id,
@@ -80,7 +127,8 @@ class FaceIndexingService:
         self,
         face: Face,
         collection_id: str,
-        image_id: Optional[str]
+        image_id: Optional[str],
+        detection_id: str
     ) -> FaceRecord:
         """Store face in vector database and return API response record.
 
@@ -88,6 +136,7 @@ class FaceIndexingService:
             face: Face entity with embedding
             collection_id: Collection where face will be stored
             image_id: Source image identifier
+            detection_id: ID grouping faces from same detection operation
 
         Returns:
             FaceRecord formatted for API response
@@ -95,13 +144,14 @@ class FaceIndexingService:
         Raises:
             ValueError: If face has no embedding vector
         """
-        face_detection_id = str(uuid.uuid4())
+        face_id = str(uuid.uuid4())
 
         # Create vector database record
         vector_record = VectorFaceRecord.from_face(
             face=face,
-            face_id=face_detection_id,
+            face_id=face_id,
             collection_id=collection_id,
+            detection_id=detection_id,
             image_id=image_id
         )
 
@@ -110,12 +160,13 @@ class FaceIndexingService:
             face=face,
             collection_id=collection_id,
             image_id=image_id,
-            face_detection_id=face_detection_id
+            face_id=face_id,
+            detection_id=detection_id
         )
 
         # Create API response record
         return FaceRecord.from_face(
             face=face,
-            face_id=face_detection_id,
+            face_id=face_id,
             image_id=image_id
         )
