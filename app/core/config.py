@@ -42,26 +42,7 @@ class Settings(BaseSettings):
     PINECONE_API_KEY: str
     PINECONE_INDEX_NAME: str = "face-recognition"
 
-    # PostgreSQL Settings
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str
-    POSTGRES_DB: str = "facerec"
-    POSTGRES_POOL_SIZE: int = 5
-    POSTGRES_MAX_OVERFLOW: int = 10
-    POSTGRES_POOL_TIMEOUT: int = 30
-
     # Image Processing Settings
     JPEG_QUALITY: int = 85  # Good balance of quality/size
-
-    @property
-    def database_url(self) -> str:
-        """Get async PostgreSQL database URL."""
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
-
 
 settings = Settings()

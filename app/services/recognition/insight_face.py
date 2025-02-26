@@ -30,6 +30,7 @@ Note:
     This implementation uses CPU inference by default. For GPU support,
     modify the providers list in __init__ to include 'CUDAExecutionProvider'.
 """
+import math
 from typing import Any, List, Optional, TypeVar
 
 import cv2
@@ -39,7 +40,6 @@ from insightface.app.common import Face as InsightFace
 
 from app.core.config import settings
 from app.core.exceptions import (
-    ImageTooLargeError,
     InvalidImageError,
     MultipleFacesError,
     NoFaceDetectedError,
@@ -53,7 +53,6 @@ from app.domain.value_objects.recognition import (
     FaceMatch,
     SearchResult,
 )
-import math
 
 logger = get_logger(__name__)
 
@@ -134,16 +133,16 @@ class InsightFaceRecognitionService(FaceRecognitionService):
                 scale = math.sqrt(settings.MAX_IMAGE_PIXELS / pixels)
                 new_width = int(width * scale)
                 new_height = int(height * scale)
-                
+
                 logger.info(
                     "Resizing large image",
                     original_size=(width, height),
                     new_size=(new_width, new_height)
                 )
-                
+
                 img = cv2.resize(
-                    img, 
-                    (new_width, new_height), 
+                    img,
+                    (new_width, new_height),
                     interpolation=cv2.INTER_AREA
                 )
 
@@ -183,7 +182,7 @@ class InsightFaceRecognitionService(FaceRecognitionService):
             bounding_box=bounding_box,
             # Convert to percentage
             confidence=float(face_data.det_score * 100),
-            embedding=face_data.embedding.tolist() if face_data.embedding is not None else None
+            embedding=face_data.embedding if face_data.embedding is not None else None
         )
 
     async def _process_image(
@@ -254,9 +253,9 @@ class InsightFaceRecognitionService(FaceRecognitionService):
         Detect faces with non-blocking processing.
         """
         img = await self._load_and_validate_image(image_bytes)
-        
+
         faces = await self._process_image(img, max_faces)
-        
+
         return DetectionResult(
             faces=[self._convert_to_face(face) for face in faces]
         )

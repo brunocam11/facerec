@@ -1,4 +1,4 @@
 """Pinecone vector store implementation."""
-from .vector_store import PineconeVectorStore
+from .pinecone import PineconeVectorStore
 
 __all__ = ["PineconeVectorStore"] 

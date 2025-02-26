@@ -5,10 +5,10 @@ A high-performance face recognition service that provides face detection, indexi
 ## Features
 
 - Face detection and analysis
-- Face indexing and search
-- Collection-based organization
+- Face indexing and search by collection
 - High performance (~50ms per face)
 - Production-ready accuracy (99.77% on LFW)
+- Flexible integration options
 - Self-hosted and cost-effective
 
 ## Quick Start
@@ -24,10 +24,6 @@ poetry install
 # Set environment variables
 cp .env.example .env
 # Edit .env with your settings
-
-# Setup database
-createdb facerec
-alembic upgrade head
 
 # Run service
 poetry run uvicorn app.main:app --reload
@@ -46,17 +42,19 @@ MAX_FACES_PER_IMAGE=20
 MIN_FACE_CONFIDENCE=0.9
 SIMILARITY_THRESHOLD=0.8
 
-# PostgreSQL Settings
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_secure_password
-POSTGRES_DB=facerec
-
 # Vector Store (Pinecone)
 PINECONE_API_KEY=your_key
 PINECONE_INDEX_NAME=face-recognition
 ```
+
+## Integration
+
+This service is designed to be flexible and easy to integrate:
+
+- Organize faces into collections
+- Reference source images by ID
+- AWS Rekognition-compatible API
+- Independent storage system
 
 ## Development
 

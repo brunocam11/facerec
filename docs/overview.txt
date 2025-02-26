@@ -1,5 +1,5 @@
 Project Overview
-You are developing a self-hosted facial recognition service to replace AWS Rekognition for your photography marketplace. The goal is to allow users to search for themselves within albums using facial recognition while reducing costs. The solution must closely mimic AWS Rekognition’s interfaces to minimize changes in your existing codebase.
+You are developing a self-hosted facial recognition service to replace AWS Rekognition for your platform. The goal is to allow users to search for themselves within collections using facial recognition while reducing costs. The solution must closely mimic AWS Rekognition's interfaces to minimize changes in your existing codebase.
 
 Key Requirements
 Deployment:
@@ -8,27 +8,27 @@ The service will be deployed on the cloud.
 Hosting and serving specifics will be decided later.
 Data Scope:
 
-Each album will contain between 1,000 and 5,000 images.
+Each collection will contain between 1,000 and 5,000 images.
 API and Framework:
 
 Use FastAPI to implement the backend API.
-Mimic AWS Rekognition’s key endpoints, such as IndexFaces and SearchFacesByImage.
-Database:
+Mimic AWS Rekognition's key endpoints, such as IndexFaces and SearchFacesByImage.
+Vector Storage:
 
-Use PostgreSQL initially for storing facial embeddings and metadata.
-Design an interchangeable interface to allow seamless migration to vector search solutions like FAISS or others in the future.
+Use Pinecone for storing and searching facial embeddings efficiently.
+Leverage Pinecone's vector similarity search capabilities for fast and accurate face matching.
 Facial Recognition:
 
 Leverage existing pre-trained models (e.g., InsightFace, DeepFace) for facial embedding extraction.
 Focus on optimizing for performance and accuracy using proven frameworks and tools.
 Service Modularity:
 
-Abstract facial recognition and database logic to ensure flexibility and scalability.
+Abstract facial recognition and vector storage logic to ensure flexibility and scalability.
 Build a modular architecture for easy upgrades or replacement of components.
 Scalability:
 
 Ensure the system can handle multiple concurrent requests efficiently.
-Plan for optimization to maintain fast response times with up to 5,000 images per album.
+Plan for optimization to maintain fast response times with up to 5,000 images per collection.
 Testing and Validation:
 
 Implement unit and integration tests to validate API consistency and functionality.
@@ -40,10 +40,10 @@ Delegate the choice of the specific pre-trained model and pipeline to proven sol
 API Design:
 
 The service must implement AWS Rekognition-compatible interfaces to minimize changes to existing application logic.
-Database:
+Vector Storage:
 
-Start with PostgreSQL for simplicity and familiarity.
-Include a service layer abstraction to allow future migration to FAISS or similar systems.
+Use Pinecone for efficient vector similarity search and storage.
+Leverage Pinecone's built-in indexing and search capabilities for optimal performance.
 Hosting:
 
 Hosting and serving decisions (e.g., whether to use serverless, containers, or dedicated instances) will be addressed after the core service is functional.
@@ -51,15 +51,15 @@ Next Steps
 Define API Specifications:
 
 Replicate AWS Rekognition endpoints and finalize request/response formats.
-Design Database Schema:
+Set Up Vector Storage:
 
-Create an initial schema for PostgreSQL to store embeddings, metadata, and album references.
+Configure Pinecone index and optimize for face embedding storage and retrieval.
 Set Up Facial Recognition Pipeline:
 
 Select and integrate a pre-trained model for facial embedding extraction.
-Implement Interchangeable Interface:
+Implement Storage Interface:
 
-Build an abstraction layer to manage database interactions.
+Build an abstraction layer to manage vector storage interactions.
 Develop and Test:
 
-Begin implementation, starting with core API endpoints and database integration.
+Begin implementation, starting with core API endpoints and vector storage integration.

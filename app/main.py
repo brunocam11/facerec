@@ -1,22 +1,48 @@
 """Main application module for the facial recognition service."""
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import router as api_v1_router
 from app.core.config import settings
-from app.core.exceptions import FaceRecognitionError
 from app.core.logging import get_logger, setup_logging
-from app.infrastructure.api.v1 import router as api_v1_router
 
 # Set up logging
 setup_logging()
 logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
+    """Handle application startup and shutdown events.
+
+    Args:
+        app: FastAPI application instance
+
+    Returns:
+        AsyncGenerator[Any, None]: Async context manager for app lifecycle
+    """
+    # Startup tasks
+    logger.info(
+        "Starting up facial recognition service",
+        version=settings.VERSION,
+        environment=settings.ENVIRONMENT,
+    )
+
+    yield
+
+    # Shutdown tasks
+    logger.info("Shutting down facial recognition service")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -41,19 +67,3 @@ async def health_check() -> dict:
     """
     logger.info("Health check requested")
     return {"status": "healthy"}
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Run startup tasks."""
-    logger.info(
-        "Starting up facial recognition service",
-        version=settings.VERSION,
-        environment=settings.ENVIRONMENT,
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Run shutdown tasks."""
-    logger.info("Shutting down facial recognition service")

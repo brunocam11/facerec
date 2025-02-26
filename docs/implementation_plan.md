@@ -4,8 +4,8 @@
 1. Project Setup
    - [  ] Initialize FastAPI project with project structure
    - [  ] Set up Docker configuration
-   - [  ] Configure PostgreSQL with vector extension
-   - [  ] Set up alembic migrations
+   - [  ] Configure Pinecone vector store
+   - [  ] Set up environment variables and secrets
    - [  ] Configure logging and basic monitoring
 
 2. Base Implementation
@@ -25,12 +25,12 @@
    - [  ] Add cleanup for processed images
 
 2. Storage Implementation
-   - [  ] Create database schema for faces and albums (independent from marketplace DB)
-   - [  ] Implement PostgreSQL vector storage for face embeddings
-   - [  ] Add indexing for face embeddings
-   - [  ] Implement basic query optimization
-   - [  ] Add external image reference handling (marketplace image IDs/URLs)
-   - [  ] Ensure no direct dependencies on marketplace database
+   - [  ] Configure Pinecone index with optimal dimensions
+   - [  ] Implement vector storage interface for face embeddings
+   - [  ] Add metadata handling for face records
+   - [  ] Implement efficient batch operations
+   - [  ] Add external image reference handling (your platform's image IDs/URLs)
+   - [  ] Ensure no direct dependencies on external systems
 
 ## Phase 3: API Development (Week 2-3)
 1. Core Endpoints (AWS Rekognition Compatible)
@@ -60,9 +60,9 @@
 
 ## Phase 5: Production Readiness (Week 4)
 1. Performance Optimization
-   - [  ] Implement connection pooling
+   - [  ] Optimize vector indexing
    - [  ] Add caching layer
-   - [  ] Optimize query performance
+   - [  ] Optimize search performance
    - [  ] Add batch processing capabilities
 
 2. Monitoring & Operations
@@ -88,10 +88,9 @@
 ## Dependencies
 - FastAPI + Uvicorn
 - InsightFace
-- PostgreSQL with pgvector
-- SQLAlchemy + Alembic
+- Pinecone
 - Prometheus client
-- Python 3.9+
+- Python 3.11+
 - Docker
 
 ## Notes
@@ -100,4 +99,4 @@
 - Prioritize reliability over advanced features
 - Keep monitoring simple but effective
 - No persistent image storage - process and discard
-- Maintain strict database independence from marketplace 
+- Maintain strict independence from external systems 
