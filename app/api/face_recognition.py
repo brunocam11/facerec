@@ -5,10 +5,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from app.api.models.face import IndexFacesResponse
 from app.core.exceptions import InvalidImageError, NoFaceDetectedError, VectorStoreError
 from app.core.logging import get_logger
-from app.domain.value_objects.recognition import FaceMatch
-from app.api.models.face import FaceRecord, IndexFacesResponse, DetectionResponse
 from app.infrastructure.dependencies import get_indexing_service
 from app.services.face_indexing import FaceIndexingService
 

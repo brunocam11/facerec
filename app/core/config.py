@@ -40,7 +40,8 @@ class Settings(BaseSettings):
 
     # Pinecone Settings
     PINECONE_API_KEY: str
-    PINECONE_INDEX_NAME: str = "face-recognition"
+    PINECONE_INDEX_NAME: str
+    MODEL_PATH: str = "buffalo_l"
 
     # Image Processing Settings
     JPEG_QUALITY: int = 85  # Good balance of quality/size

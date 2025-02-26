@@ -49,4 +49,10 @@ class VectorStoreError(FaceRecognitionError):
 
 class CollectionNotFoundError(VectorStoreError):
     """Raised when attempting to access a non-existent collection."""
+    pass
+
+
+class ServiceNotInitializedError(Exception):
+    """Raised when trying to use a service that hasn't been initialized."""
+
     pass 

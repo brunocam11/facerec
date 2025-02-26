@@ -1,45 +1,60 @@
-"""FastAPI dependencies."""
-from typing import Annotated
+"""FastAPI dependency providers."""
+from typing import AsyncGenerator
 
 from fastapi import Depends
 
+from app.core.container import container
+from app.core.exceptions import ServiceNotInitializedError
 from app.infrastructure.vectordb import PineconeVectorStore
 from app.services import InsightFaceRecognitionService
 from app.services.face_indexing import FaceIndexingService
 
 
-def get_vector_store() -> PineconeVectorStore:
-    """Get vector store instance.
+async def get_face_recognition_service() -> AsyncGenerator[InsightFaceRecognitionService, None]:
+    """Provide the initialized InsightFace service.
 
-    Returns:
-        PineconeVectorStore: Vector store for face embeddings
+    Yields:
+        InsightFaceRecognitionService: Initialized face recognition service
+
+    Raises:
+        ServiceNotInitializedError: If service is not initialized
     """
-    return PineconeVectorStore()
+    if container.face_recognition_service is None:
+        raise ServiceNotInitializedError(
+            "Face recognition service not initialized")
+    yield container.face_recognition_service
 
 
-def get_face_service() -> InsightFaceRecognitionService:
-    """Get face recognition service instance.
+async def get_vector_store() -> AsyncGenerator[PineconeVectorStore, None]:
+    """Provide the initialized Pinecone vector store.
 
-    Returns:
-        InsightFaceRecognitionService: Face recognition service
+    Yields:
+        PineconeVectorStore: Initialized vector store instance
+
+    Raises:
+        ServiceNotInitializedError: If vector store is not initialized
     """
-    return InsightFaceRecognitionService()
+    if container.vector_store is None:
+        raise ServiceNotInitializedError("Vector store not initialized")
+    yield container.vector_store
 
 
-def get_indexing_service(
-    face_service: Annotated[InsightFaceRecognitionService, Depends(get_face_service)],
-    vector_store: Annotated[PineconeVectorStore, Depends(get_vector_store)]
-) -> FaceIndexingService:
-    """Get face indexing service instance.
+async def get_indexing_service(
+    face_service: InsightFaceRecognitionService = Depends(
+        get_face_recognition_service),
+    vector_store: PineconeVectorStore = Depends(get_vector_store),
+) -> AsyncGenerator[FaceIndexingService, None]:
+    """Provide the face indexing service.
 
     Args:
-        face_service: Face recognition service
-        vector_store: Vector store for embeddings
+        face_service: Face recognition service instance
+        vector_store: Vector store instance
 
-    Returns:
-        FaceIndexingService: Face indexing service
+    Yields:
+        FaceIndexingService: Initialized indexing service
     """
-    return FaceIndexingService(
+    service = FaceIndexingService(
         face_service=face_service,
-        vector_store=vector_store
+        vector_store=vector_store,
     )
+    yield service
