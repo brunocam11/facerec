@@ -8,6 +8,7 @@ from app.core.exceptions import ServiceNotInitializedError
 from app.infrastructure.vectordb import PineconeVectorStore
 from app.services import InsightFaceRecognitionService
 from app.services.face_indexing import FaceIndexingService
+from app.services.face_matching import FaceMatchingService
 
 
 async def get_face_recognition_service() -> AsyncGenerator[InsightFaceRecognitionService, None]:
@@ -57,4 +58,13 @@ async def get_indexing_service(
         face_service=face_service,
         vector_store=vector_store,
     )
+    yield service
+
+
+async def get_face_matching_service(
+    face_service: InsightFaceRecognitionService = Depends(
+        get_face_recognition_service),
+    vector_store: PineconeVectorStore = Depends(get_vector_store),
+) -> AsyncGenerator[FaceMatchingService, None]:
+    service = FaceMatchingService(face_service, vector_store)
     yield service

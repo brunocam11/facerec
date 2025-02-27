@@ -50,7 +50,6 @@ class IndexFacesResponse(BaseModel):
     image_id: Optional[str] = Field(None, description="Source image identifier")
 
 
-class SearchFacesResponse(BaseModel):
-    """Response model for face search endpoint."""
-    searched_face_id: str = Field(..., description="ID of the face used for search")
+class MatchFacesResponse(BaseModel):
+    """Response model for face matching endpoint."""
     face_matches: List[FaceMatch] = Field(..., description="Similar faces found") 

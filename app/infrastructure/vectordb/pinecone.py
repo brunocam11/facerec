@@ -1,6 +1,7 @@
 """Pinecone implementation of vector store for face embeddings."""
 from typing import List, Optional
 from datetime import datetime
+import uuid
 
 import numpy as np
 from pinecone import Pinecone
@@ -198,8 +199,7 @@ class PineconeVectorStore(VectorStore):
 
                 try:
                     # Parse timestamps from ISO format
-                    created_at = datetime.fromisoformat(match.metadata.get("created_at", datetime.utcnow().isoformat()))
-                    updated_at = datetime.fromisoformat(match.metadata.get("updated_at", datetime.utcnow().isoformat()))
+                    created_at = datetime.fromisoformat(match.metadata.get("created_at", datetime.now().isoformat()))
 
                     records.append(VectorFaceRecord(
                         face_id=match.id,
@@ -213,7 +213,6 @@ class PineconeVectorStore(VectorStore):
                         bbox_width=float(match.metadata.get("bbox_width", 0)),
                         bbox_height=float(match.metadata.get("bbox_height", 0)),
                         created_at=created_at,
-                        updated_at=updated_at
                     ))
                 except Exception as e:
                     logger.error(
@@ -242,19 +241,17 @@ class PineconeVectorStore(VectorStore):
         query_face: Face,
         collection_id: str,
         similarity_threshold: Optional[float] = None,
-        max_matches: Optional[int] = None,
     ) -> SearchResult:
         """Search for similar faces in a collection namespace."""
         try:
             # Set defaults from settings
             threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
-            limit = max_matches or settings.MAX_MATCHES
 
             # Query Pinecone in the collection namespace
             results = self.index.query(
-                vector=query_face.embedding.tolist(),  # Ensure embedding is a list
-                namespace=collection_id,  # Search in collection namespace
-                top_k=limit,
+                vector=query_face.embedding.tolist(),
+                namespace=collection_id,
+                top_k=100,
                 include_metadata=True
             )
 
@@ -274,16 +271,18 @@ class PineconeVectorStore(VectorStore):
                     height=metadata["bbox_height"]
                 )
 
+                # Convert embedding to numpy array if it exists, otherwise use None
+                embedding = np.array(match.values) if hasattr(match, 'values') and match.values else None
+
                 face = Face(
                     bounding_box=bounding_box,
                     confidence=metadata["confidence"],
-                    embedding=match.values if hasattr(match, 'values') else None
+                    embedding=embedding
                 )
 
                 matches.append(FaceMatch(
-                    face=face,
+                    face_id=metadata["face_id"],
                     similarity=match.score * 100,  # Convert to 0-100 scale
-                    face_detection_id=metadata["face_id"],
                     image_id=metadata["image_id"]
                 ))
 
@@ -294,9 +293,12 @@ class PineconeVectorStore(VectorStore):
                 threshold=threshold
             )
 
+            # Generate a unique ID for the searched face
+            searched_face_id = str(uuid.uuid4())
+
             return SearchResult(
-                searched_face=query_face,
-                matches=matches
+                searched_face_id=searched_face_id,
+                face_matches=matches
             )
 
         except Exception as e:

@@ -13,14 +13,14 @@ class DetectionResult(BaseModel):
 
 class FaceMatch(BaseModel):
     """Face match result from search operation."""
-    face_id: str = Field(..., description="External system face identifier")
+    face_id: str = Field(..., description="Face identifier")
     similarity: float = Field(..., description="Similarity score with searched face")
-    external_image_id: Optional[str] = Field(None, description="External system image identifier")
+    image_id: Optional[str] = Field(None, description="External system image identifier")
 
 
 class SearchResult(BaseModel):
     """Result of face search operation."""
-    searched_face_id: str = Field(..., description="External system face identifier")
+    searched_face_id: str = Field(..., description="Face identifier")
     face_matches: List[FaceMatch] = Field(..., description="List of matching faces")
 
 

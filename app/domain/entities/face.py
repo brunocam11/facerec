@@ -29,14 +29,4 @@ class Face(BaseModel):
             return None
         if isinstance(v, list):
             return np.array(v)
-        if not isinstance(v, np.ndarray):
-            raise ValueError("Embedding must be a numpy array or list")
         return v
-
-
-class FaceRecord(BaseModel):
-    """Face record returned by API operations."""
-    face_id: str = Field(..., description="Unique identifier of the detected face")
-    bounding_box: BoundingBox = Field(..., description="Face location in image")
-    confidence: float = Field(..., description="Confidence score (0-100)")
-    image_id: Optional[str] = Field(None, description="Source image identifier") 
