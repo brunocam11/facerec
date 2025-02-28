@@ -20,10 +20,6 @@ Example:
     # Detect faces in an image
     with open("image.jpg", "rb") as f:
         result = await service.detect_faces(f.read(), max_faces=5)
-        
-    # Compare two faces
-    result = await service.compare_faces(image1_bytes, image2_bytes)
-    print(f"Similarity: {result.similarity}%")
     ```
 
 Note:
@@ -290,76 +286,6 @@ class InsightFaceRecognitionService(FaceRecognitionService):
             raise NoFaceDetectedError("No faces detected in image")
 
         return [self._convert_to_face(face) for face in faces]
-
-    async def compare_faces(
-        self,
-        source_image: bytes,
-        target_image: bytes,
-        similarity_threshold: Optional[float] = None,
-    ) -> ComparisonResult:
-        """
-        Compare faces between two images.
-
-        This method detects faces in both images and computes their similarity
-        score using cosine similarity of their embedding vectors.
-
-        Args:
-            source_image: Raw image data of the source face
-            target_image: Raw image data of the target face
-            similarity_threshold: Minimum similarity score (0-100)
-
-        Returns:
-            ComparisonResult: Contains both faces and their similarity score
-
-        Raises:
-            InvalidImageError: If any image format is invalid
-            ImageTooLargeError: If any image dimensions exceed limits
-            NoFaceDetectedError: If no face is found in either image
-            MultipleFacesError: If multiple faces found in either image
-        """
-        try:
-            source_faces = await self.get_faces_with_embeddings(source_image, max_faces=1)
-            target_faces = await self.get_faces_with_embeddings(target_image, max_faces=1)
-
-            if len(source_faces) > 1:
-                logger.warning("Multiple faces found in source image")
-                raise MultipleFacesError(
-                    "Multiple faces found in source image")
-            if len(target_faces) > 1:
-                logger.warning("Multiple faces found in target image")
-                raise MultipleFacesError(
-                    "Multiple faces found in target image")
-
-            source_face = source_faces[0]
-            target_face = target_faces[0]
-
-            similarity = self._calculate_similarity(
-                np.array(source_face.embedding),
-                np.array(target_face.embedding)
-            )
-
-            logger.debug(
-                "Face comparison completed",
-                similarity=similarity,
-                threshold=similarity_threshold or settings.SIMILARITY_THRESHOLD
-            )
-
-            return ComparisonResult(
-                source_face=source_face,
-                target_face=target_face,
-                similarity=similarity,
-                matches=similarity >= (
-                    similarity_threshold or settings.SIMILARITY_THRESHOLD)
-            )
-        except Exception as e:
-            if isinstance(e, (MultipleFacesError, NoFaceDetectedError)):
-                raise
-            logger.error(
-                "Face comparison failed",
-                error=str(e),
-                exc_info=True
-            )
-            raise
 
     async def search_faces(
         self,

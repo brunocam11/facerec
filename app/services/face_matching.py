@@ -1,8 +1,6 @@
-from typing import List
-
 from app.core.exceptions import NoFaceDetectedError
 from app.core.logging import get_logger
-from app.domain.entities import Face
+from app.domain.value_objects.recognition import SearchResult
 from app.infrastructure.vectordb import PineconeVectorStore
 from app.services.recognition.insight_face import InsightFaceRecognitionService
 
@@ -14,7 +12,7 @@ class FaceMatchingService:
         self.face_service = face_service
         self.vector_store = vector_store
 
-    async def match_faces_in_a_collection(self, image_bytes: bytes, collection_id: str, threshold: float = 0.5) -> List[Face]:
+    async def match_faces_in_a_collection(self, image_bytes: bytes, collection_id: str, threshold: float = 0.5) -> SearchResult:
         """
         Given an image, extract just one face and find similar faces in a specific collection on the vector store.
 
@@ -38,4 +36,4 @@ class FaceMatchingService:
 
         except NoFaceDetectedError:
             logger.error(f"No face detected in the image provided")
-            return []
+            return SearchResult(searched_face_id="No face detected", face_matches=[])

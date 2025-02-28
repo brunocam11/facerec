@@ -18,6 +18,21 @@ from app.infrastructure.vectordb.models import VectorFaceRecord
 logger = get_logger(__name__)
 
 
+def transform_cosine_similarity(cosine_score: float) -> float:
+    """Transform cosine similarity from [-1, 1] to [0, 100] scale.
+    
+    Args:
+        cosine_score: Cosine similarity score from Pinecone (-1 to 1)
+        
+    Returns:
+        Transformed score on 0-100 scale
+    """
+    # Transform from [-1, 1] to [0, 1]
+    normalized_score = (cosine_score + 1) / 2
+    # Scale to [0, 100]
+    return normalized_score * 100
+
+
 class PineconeMetadata(BaseModel):
     """Metadata stored with face vectors in Pinecone.
     
@@ -92,13 +107,27 @@ class PineconeVectorStore(VectorStore):
         face_id: str,
         detection_id: str,
     ) -> None:
-        """Store a face embedding in a collection namespace."""
+        """Store a face embedding in a collection namespace.
+        
+        This implementation stores face embeddings in Pinecone using ANN with cosine similarity.
+        The face embedding should be normalized for optimal cosine similarity performance.
+        
+        Args:
+            face: Face object with embedding vector
+            collection_id: Collection namespace in Pinecone
+            image_id: Original image identifier
+            face_id: Unique identifier for this face
+            detection_id: ID grouping all faces detected in same operation
+            
+        Raises:
+            VectorStoreError: If storage operation fails
+        """
         try:
             # Use face_id as vector ID for direct lookups
             vector_id = face_id
 
             # Get current timestamp
-            now = datetime.utcnow().isoformat()
+            now = datetime.now().isoformat()
 
             # Prepare metadata (no need to store collection_id since it's in namespace)
             metadata = PineconeMetadata(
@@ -113,15 +142,27 @@ class PineconeVectorStore(VectorStore):
                 created_at=now
             )
 
-            # Upsert the embedding with metadata in the collection namespace
-            self.index.upsert(
-                vectors=[(
-                    vector_id,
-                    face.embedding.tolist(),  # Ensure embedding is a list
-                    metadata.dict()
-                )],
-                namespace=collection_id  # Use collection_id as namespace
-            )
+            # Ensure embedding is normalized for optimal cosine similarity
+            embedding = face.embedding
+            if embedding is not None:
+                # Normalize the embedding vector for better cosine similarity results
+                norm = np.linalg.norm(embedding)
+                if norm > 0:
+                    normalized_embedding = embedding / norm
+                else:
+                    normalized_embedding = embedding
+                
+                # Upsert the embedding with metadata in the collection namespace
+                self.index.upsert(
+                    vectors=[(
+                        vector_id,
+                        normalized_embedding.tolist(),  # Use normalized embedding
+                        metadata.dict()
+                    )],
+                    namespace=collection_id  # Use collection_id as namespace
+                )
+            else:
+                raise VectorStoreError("Face embedding is None, cannot store in vector database")
 
             logger.debug(
                 "Stored face embedding",
@@ -242,24 +283,64 @@ class PineconeVectorStore(VectorStore):
         collection_id: str,
         similarity_threshold: Optional[float] = None,
     ) -> SearchResult:
-        """Search for similar faces in a collection namespace."""
+        """Search for similar faces in a collection namespace.
+        
+        This implementation uses Pinecone's ANN search with cosine similarity.
+        Cosine similarity scores from Pinecone range from -1 to 1, where:
+        - 1 means vectors are identical
+        - 0 means vectors are orthogonal (unrelated)
+        - -1 means vectors are opposite
+        
+        We transform these scores to a 0-100 scale for better usability:
+        - 100 means perfect match (cosine similarity of 1)
+        - 50 means unrelated (cosine similarity of 0)
+        - 0 means opposite (cosine similarity of -1)
+        
+        Args:
+            query_face: Face to search for
+            collection_id: Collection namespace in Pinecone
+            similarity_threshold: Minimum similarity threshold (0-1 scale)
+            max_matches: Maximum number of matches to return
+            
+        Returns:
+            SearchResult with face matches and their similarity scores (0-100)
+            
+        Raises:
+            VectorStoreError: If search operation fails
+        """
         try:
             # Set defaults from settings
             threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
 
+            # Ensure query embedding is normalized for optimal cosine similarity
+            if query_face.embedding is None:
+                raise VectorStoreError("Query face has no embedding")
+                
+            # Normalize the query embedding vector for better cosine similarity results
+            query_embedding = query_face.embedding
+            norm = np.linalg.norm(query_embedding)
+            if norm > 0:
+                normalized_query = query_embedding / norm
+            else:
+                normalized_query = query_embedding
+
             # Query Pinecone in the collection namespace
             results = self.index.query(
-                vector=query_face.embedding.tolist(),
+                vector=normalized_query.tolist(),
                 namespace=collection_id,
                 top_k=100,
-                include_metadata=True
+                include_metadata=True,
+                include_values=True
             )
 
             # Convert results to domain model
             matches = []
             for match in results.matches:
+                # Transform cosine similarity from [-1, 1] to [0, 100]
+                similarity_score = transform_cosine_similarity(match.score)
+                
                 # Skip results below threshold
-                if match.score < (threshold / 100):  # Pinecone uses 0-1 scale
+                if similarity_score < threshold * 100:  # Convert threshold to same scale
                     continue
 
                 metadata = match.metadata
@@ -282,7 +363,7 @@ class PineconeVectorStore(VectorStore):
 
                 matches.append(FaceMatch(
                     face_id=metadata["face_id"],
-                    similarity=match.score * 100,  # Convert to 0-100 scale
+                    similarity=similarity_score,  # Use transformed score
                     image_id=metadata["image_id"]
                 ))
 
