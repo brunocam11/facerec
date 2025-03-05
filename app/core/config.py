@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str
     MODEL_PATH: str = "buffalo_l"
 
+    # AWS Settings
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "us-east-1"
+    AWS_S3_BUCKET: str = ""
+    AWS_S3_BUCKET_REGION: str = "us-east-1"
+
     # Image Processing Settings
     JPEG_QUALITY: int = 85  # Good balance of quality/size
 

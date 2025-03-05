@@ -44,6 +44,7 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+data/indexed_images.json
 
 # Docker
 .docker/

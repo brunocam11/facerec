@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from starlette.responses import JSONResponse
 
-from app.api.models.face import IndexFacesResponse
+from app.api.models.face import IndexFacesResponse, FaceRecord
 from app.core.exceptions import InvalidImageError, NoFaceDetectedError, VectorStoreError
 from app.core.logging import get_logger
 from app.domain.value_objects.recognition import SearchResult
@@ -14,9 +14,38 @@ from app.infrastructure.dependencies import (
 )
 from app.services.face_indexing import FaceIndexingService
 from app.services.face_matching import FaceMatchingService
+from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+# Helper function to convert service models to API models
+def _convert_service_response_to_api_response(
+    service_response: ServiceIndexFacesResponse
+) -> IndexFacesResponse:
+    """Convert service response to API response.
+    
+    Args:
+        service_response: Service layer response
+        
+    Returns:
+        API layer response
+    """
+    face_records = [
+        FaceRecord(
+            face_id=record.face_id,
+            bounding_box=record.bounding_box,
+            confidence=record.confidence,
+            image_id=record.image_id
+        )
+        for record in service_response.face_records
+    ]
+    
+    return IndexFacesResponse(
+        face_records=face_records,
+        detection_id=service_response.detection_id,
+        image_id=service_response.image_id
+    )
 
 
 @router.post(
@@ -54,12 +83,14 @@ async def index_faces(
         image_bytes = await image.read()
 
         # Delegate to service
-        return await indexing_service.index_faces(
+        service_response = await indexing_service.index_faces(
             image_id=image_id,
             image_bytes=image_bytes,
             collection_id=collection_id,
             max_faces=max_faces,
         )
+
+        return _convert_service_response_to_api_response(service_response)
 
     except NoFaceDetectedError:
         raise HTTPException(

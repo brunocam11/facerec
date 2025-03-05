@@ -2,7 +2,7 @@
 import uuid
 from typing import List, Optional
 
-from app.api.models.face import FaceRecord, IndexFacesResponse
+from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
 from app.core.logging import get_logger
 from app.domain.entities import BoundingBox
 from app.domain.entities.face import Face
@@ -36,7 +36,7 @@ class FaceIndexingService:
         image_bytes: bytes,
         collection_id: str,
         max_faces: Optional[int] = 5,
-    ) -> IndexFacesResponse:
+    ) -> ServiceIndexFacesResponse:
         """Index faces from image bytes.
 
         If the image_id already exists in the collection, returns the existing face records
@@ -50,7 +50,7 @@ class FaceIndexingService:
             max_faces: Optional maximum number of faces to index
 
         Returns:
-            IndexFacesResponse containing the indexed face records
+            ServiceIndexFacesResponse containing the indexed face records
         """
         # Check if image was already processed
         existing_faces, detection_id = await self._vector_store.get_faces_by_image_id(
@@ -76,14 +76,14 @@ class FaceIndexingService:
                     width=face.bbox_width,
                     height=face.bbox_height
                 )
-                face_records.append(FaceRecord(
+                face_records.append(ServiceFaceRecord(
                     face_id=face.face_id,
                     bounding_box=bounding_box,
                     confidence=face.confidence,
                     image_id=image_id
                 ))
 
-            return IndexFacesResponse(
+            return ServiceIndexFacesResponse(
                 face_records=face_records,
                 detection_id=detection_id,  # Use the original detection_id
                 image_id=image_id
@@ -117,7 +117,7 @@ class FaceIndexingService:
             detection_id=detection_id
         )
 
-        return IndexFacesResponse(
+        return ServiceIndexFacesResponse(
             face_records=face_records,
             detection_id=detection_id,
             image_id=image_id
@@ -129,7 +129,7 @@ class FaceIndexingService:
         collection_id: str,
         image_id: Optional[str],
         detection_id: str
-    ) -> FaceRecord:
+    ) -> ServiceFaceRecord:
         """Store face in vector database and return API response record.
 
         Args:
@@ -139,7 +139,7 @@ class FaceIndexingService:
             detection_id: ID grouping faces from same detection operation
 
         Returns:
-            FaceRecord formatted for API response
+            ServiceFaceRecord formatted for API response
             
         Raises:
             ValueError: If face has no embedding vector
@@ -165,7 +165,7 @@ class FaceIndexingService:
         )
 
         # Create API response record
-        return FaceRecord.from_face(
+        return ServiceFaceRecord.from_face(
             face=face,
             face_id=face_id,
             image_id=image_id
