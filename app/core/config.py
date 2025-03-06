@@ -49,8 +49,10 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     AWS_S3_BUCKET: str = ""
     AWS_S3_BUCKET_REGION: str = "us-east-1"
-
-    # Image Processing Settings
-    JPEG_QUALITY: int = 85  # Good balance of quality/size
+    
+    # SQS Settings
+    SQS_VISIBILITY_TIMEOUT: int = 300
+    SQS_MAX_MESSAGES: int = 10
+    SQS_QUEUE_NAME: str = "facerec-indexing-staging-queue"
 
 settings = Settings()
