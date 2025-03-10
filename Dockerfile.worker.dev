@@ -1,0 +1,63 @@
+FROM python:3.11-slim
+
+# Install system dependencies including C++ compiler and build tools
+RUN apt-get update && apt-get install -y \
+    git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    curl \
+    g++ \
+    build-essential \
+    cmake \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up working directory
+WORKDIR /app
+
+# Create model cache directory
+RUN mkdir -p /root/.model_cache
+ENV MODEL_CACHE_DIR=/root/.model_cache
+
+# Install dependencies directly with pip (bypassing Poetry)
+RUN pip install --no-cache-dir numpy cython wheel setuptools
+RUN pip install --no-cache-dir opencv-python-headless onnxruntime
+RUN pip install --no-cache-dir insightface==0.7.3
+RUN pip install --no-cache-dir ray[default]==2.7.1
+RUN pip install --no-cache-dir pinecone boto3 fastapi uvicorn structlog pydantic-settings python-multipart
+
+# Install development tools and additional dependencies
+RUN pip install --no-cache-dir watchdog[watchmedo]
+RUN pip install --no-cache-dir async_timeout
+
+# Environment variables declarations (values will be provided at runtime)
+ENV PYTHONPATH=/app
+ENV ENVIRONMENT=development
+# Don't write .pyc files
+ENV PYTHONDONTWRITEBYTECODE=1
+# Don't buffer stdout/stderr
+ENV PYTHONUNBUFFERED=1
+
+# Application-specific environment variables (values will be provided at runtime)
+ENV MAX_FACES_PER_IMAGE=
+ENV MIN_FACE_CONFIDENCE=
+ENV SIMILARITY_THRESHOLD=
+ENV PINECONE_API_KEY=
+ENV PINECONE_INDEX_NAME=
+ENV AWS_REGION=
+ENV AWS_S3_BUCKET=
+ENV AWS_S3_BUCKET_REGION=
+ENV SQS_VISIBILITY_TIMEOUT=
+ENV SQS_MAX_MESSAGES=
+ENV SQS_QUEUE_NAME=
+
+# Copy the entire application (will be mounted in dev mode)
+COPY . .
+
+# Create a startup script for auto-reloading (in a location that won't be overridden by volume mount)
+RUN mkdir -p /scripts && \
+    echo '#!/bin/bash\nwatchmedo auto-restart --directory=./app --pattern=*.py --recursive -- python -m app.sqs.indexing_consumer.main' > /scripts/start-dev.sh && \
+    chmod +x /scripts/start-dev.sh
+
+# Command for development with auto-reload
+CMD ["/scripts/start-dev.sh"] 

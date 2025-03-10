@@ -22,6 +22,7 @@ wheels/
 
 # Virtual Environment
 .env
+.env.*
 .venv
 env/
 venv/
@@ -48,3 +49,12 @@ data/indexed_images.json
 
 # Docker
 .docker/
+
+# AWS
+.aws/
+
+# User data scripts
+ec2_user_data.sh
+
+# Metrics
+metrics
