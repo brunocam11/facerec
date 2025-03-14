@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     
     model_config = SettingsConfigDict(
         case_sensitive=True,
-        env_file=".env"
+        env_file=".env",
+        extra="ignore"
     )
 
     # Core Settings
@@ -33,16 +34,12 @@ class Settings(BaseSettings):
     MODEL_CACHE_DIR: str = ".model_cache"
     MAX_IMAGE_PIXELS: int = 1920 * 1080  # ~2MP (Full HD)
     MAX_MATCHES: int = 100  # Maximum number of matches to return from search
+    MODEL_PATH: str = "buffalo_l"
     
-    # API Settings
-    MAX_CONCURRENT_REQUESTS: int = 50
-    REQUEST_TIMEOUT_SECONDS: int = 30
-
     # Pinecone Settings
     PINECONE_API_KEY: str
     PINECONE_INDEX_NAME: str
-    MODEL_PATH: str = "buffalo_l"
-
+    
     # AWS Settings
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
@@ -51,8 +48,6 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_REGION: str = "us-east-1"
     
     # SQS Settings
-    SQS_VISIBILITY_TIMEOUT: int = 300
-    SQS_MAX_MESSAGES: int = 10
     SQS_QUEUE_NAME: str = "facerec-indexing-staging-queue"
 
 settings = Settings()

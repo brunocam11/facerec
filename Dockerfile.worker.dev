@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir numpy cython wheel setuptools
 RUN pip install --no-cache-dir opencv-python-headless onnxruntime
 RUN pip install --no-cache-dir insightface==0.7.3
 RUN pip install --no-cache-dir ray[default]==2.7.1
-RUN pip install --no-cache-dir pinecone boto3 fastapi uvicorn structlog pydantic-settings python-multipart
+RUN pip install --no-cache-dir pinecone boto3 fastapi uvicorn structlog pydantic-settings python-multipart psutil
 
 # Install development tools and additional dependencies
 RUN pip install --no-cache-dir watchdog[watchmedo]
@@ -47,8 +47,6 @@ ENV PINECONE_INDEX_NAME=
 ENV AWS_REGION=
 ENV AWS_S3_BUCKET=
 ENV AWS_S3_BUCKET_REGION=
-ENV SQS_VISIBILITY_TIMEOUT=
-ENV SQS_MAX_MESSAGES=
 ENV SQS_QUEUE_NAME=
 
 # Copy the entire application (will be mounted in dev mode)
@@ -56,7 +54,7 @@ COPY . .
 
 # Create a startup script for auto-reloading (in a location that won't be overridden by volume mount)
 RUN mkdir -p /scripts && \
-    echo '#!/bin/bash\nwatchmedo auto-restart --directory=./app --pattern=*.py --recursive -- python -m app.sqs.indexing_consumer.main' > /scripts/start-dev.sh && \
+    echo '#!/bin/bash\nwatchmedo auto-restart --directory=./app --pattern=*.py --recursive -- python -m app.consumers.indexing_consumer.main' > /scripts/start-dev.sh && \
     chmod +x /scripts/start-dev.sh
 
 # Command for development with auto-reload

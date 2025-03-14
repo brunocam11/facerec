@@ -20,14 +20,31 @@ RUN mkdir -p /root/.model_cache
 ENV MODEL_CACHE_DIR=/root/.model_cache
 
 # Install dependencies directly with pip (bypassing Poetry)
-# Install these in separate layers for better caching
-RUN pip install --no-cache-dir numpy cython wheel setuptools pydantic>=2.0.0
+# Install core scientific libraries
+RUN pip install --no-cache-dir numpy cython wheel setuptools
+
+# Install Pydantic for data validation
+RUN pip install --no-cache-dir pydantic>=2.0.0 pydantic-settings
+
+# Install computer vision libraries (required by InsightFace)
 RUN pip install --no-cache-dir opencv-python-headless onnxruntime
+
+# Install InsightFace (core face recognition library)
 # Pin albumentations version to avoid Pydantic compatibility issues
 RUN pip install --no-cache-dir albumentations==1.3.1
 RUN pip install --no-cache-dir insightface==0.7.3
+
+# Install Ray for distributed processing
 RUN pip install --no-cache-dir ray[default]==2.7.1
-RUN pip install --no-cache-dir pinecone boto3 fastapi uvicorn structlog pydantic-settings python-multipart async_timeout
+
+# Install AWS and vector database libraries
+RUN pip install --no-cache-dir pinecone boto3
+
+# Install FastAPI and related libraries (needed for API dependencies)
+RUN pip install --no-cache-dir fastapi uvicorn
+
+# Install other utilities
+RUN pip install --no-cache-dir structlog python-multipart async_timeout requests psutil
 
 # Environment variables declarations (values will be provided at runtime)
 ENV PYTHONPATH=/app
@@ -40,8 +57,6 @@ ENV PINECONE_INDEX_NAME=
 ENV AWS_REGION=
 ENV AWS_S3_BUCKET=
 ENV AWS_S3_BUCKET_REGION=
-ENV SQS_VISIBILITY_TIMEOUT=
-ENV SQS_MAX_MESSAGES=
 ENV SQS_QUEUE_NAME=
 ENV LOG_DIR=/app/logs
 
@@ -52,4 +67,4 @@ RUN mkdir -p /app/logs
 COPY . .
 
 # Command to run worker (no hot reloading)
-CMD ["python", "-m", "app.sqs.indexing_consumer.main"] 
+CMD ["python", "-m", "app.consumers.indexing_consumer.main"] 
