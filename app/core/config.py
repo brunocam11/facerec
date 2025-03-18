@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     MAX_MATCHES: int = 100  # Maximum number of matches to return from search
     MODEL_PATH: str = "buffalo_l"
     
+    # Worker Settings
+    WORKER_IDLE_TIMEOUT: int = 120  # Default to 2 minutes (120 seconds) based on SQS alarm config
+    
     # Pinecone Settings
     PINECONE_API_KEY: str
     PINECONE_INDEX_NAME: str

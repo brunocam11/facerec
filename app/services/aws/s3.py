@@ -29,7 +29,8 @@ class S3Service:
             secret_access_key: AWS secret access key (defaults to settings)
         """
         self.bucket_name = bucket_name or settings.AWS_S3_BUCKET
-        self.region_name = region_name or settings.AWS_S3_BUCKET_REGION
+        # Always use AWS_REGION for consistency
+        self.region_name = region_name or settings.AWS_REGION
         self.access_key_id = access_key_id or settings.AWS_ACCESS_KEY_ID
         self.secret_access_key = secret_access_key or settings.AWS_SECRET_ACCESS_KEY
         self.s3 = None
@@ -42,6 +43,11 @@ class S3Service:
         
         try:
             logger.info(f"Initializing S3 service for bucket: {self.bucket_name}")
+            
+            # Default to us-east-1 if region is empty
+            if not self.region_name:
+                self.region_name = "us-east-1"
+                logger.info("Using default region us-east-1")
             
             self.s3 = boto3.client(
                 's3',

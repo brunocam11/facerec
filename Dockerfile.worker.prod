@@ -23,9 +23,6 @@ ENV MODEL_CACHE_DIR=/root/.model_cache
 # Install core scientific libraries
 RUN pip install --no-cache-dir numpy cython wheel setuptools
 
-# Install Pydantic for data validation
-RUN pip install --no-cache-dir pydantic>=2.0.0 pydantic-settings
-
 # Install computer vision libraries (required by InsightFace)
 RUN pip install --no-cache-dir opencv-python-headless onnxruntime
 
@@ -44,7 +41,7 @@ RUN pip install --no-cache-dir pinecone boto3
 RUN pip install --no-cache-dir fastapi uvicorn
 
 # Install other utilities
-RUN pip install --no-cache-dir structlog python-multipart async_timeout requests psutil
+RUN pip install --no-cache-dir structlog python-multipart async_timeout requests psutil pydantic-settings
 
 # Environment variables declarations (values will be provided at runtime)
 ENV PYTHONPATH=/app

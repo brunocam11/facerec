@@ -54,7 +54,20 @@ COPY . .
 
 # Create a startup script for auto-reloading (in a location that won't be overridden by volume mount)
 RUN mkdir -p /scripts && \
-    echo '#!/bin/bash\nwatchmedo auto-restart --directory=./app --pattern=*.py --recursive -- python -m app.consumers.indexing_consumer.main' > /scripts/start-dev.sh && \
+    echo '#!/bin/bash\n\
+# This script adds a restart mechanism when worker exits with code 0 (idle shutdown)\n\
+while true; do\n\
+  echo "Starting worker process..."\n\
+  watchmedo auto-restart --directory=./app --pattern=*.py --recursive -- python -m app.consumers.indexing_consumer.main\n\
+  EXIT_CODE=$?\n\
+  if [ $EXIT_CODE -eq 0 ]; then\n\
+    echo "Worker exited due to idle timeout (scale-to-zero simulation). Waiting for new messages..."\n\
+    sleep 5\n\
+  else\n\
+    echo "Worker exited with code $EXIT_CODE. Stopping container."\n\
+    exit $EXIT_CODE\n\
+  fi\n\
+done' > /scripts/start-dev.sh && \
     chmod +x /scripts/start-dev.sh
 
 # Command for development with auto-reload

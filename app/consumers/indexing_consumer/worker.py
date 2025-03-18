@@ -11,6 +11,8 @@ import json
 import ray
 import gc
 import psutil
+import sys
+import signal
 from typing import List, Dict, Any, Optional, Tuple
 
 from app.services import face_indexing
@@ -29,12 +31,30 @@ logger = logging.getLogger(__name__)
 # Global flag for signaling shutdown
 shutdown_flag = False
 
+# Track in-progress tasks
+in_progress_tasks = 0
+
+# Get idle timeout directly from settings
+# Default is 120 seconds (2 minutes) based on the SQS-FaceRec-QueueEmpty alarm (3 minutes)
+IDLE_TIMEOUT_SECONDS = settings.WORKER_IDLE_TIMEOUT
+
 
 def set_shutdown_flag():
     """Set the shutdown flag to signal worker processes to stop."""
     global shutdown_flag
     shutdown_flag = True
     logger.info("Shutdown flag set, workers will terminate after current batch")
+
+
+def handle_sigterm(signum, frame):
+    """Handle SIGTERM signal by gracefully shutting down."""
+    logger.info(f"Received signal {signum}, initiating graceful shutdown")
+    set_shutdown_flag()
+
+
+# Register signal handlers for graceful shutdown
+signal.signal(signal.SIGTERM, handle_sigterm)
+signal.signal(signal.SIGINT, handle_sigterm)
 
 
 def check_spot_termination() -> bool:
@@ -185,8 +205,10 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
         batch_size: Number of messages to process in each batch
     """
     global shutdown_flag
+    global in_progress_tasks
     
-    logger.info("Starting message processing with Ray")
+    logger.info(f"Starting message processing with Ray in {settings.ENVIRONMENT} environment")
+    logger.info(f"Scale-to-zero enabled: worker will exit after {IDLE_TIMEOUT_SECONDS}s of inactivity")
     
     # Ensure Ray is initialized - this should already be done in main.py
     if not ray.is_initialized():
@@ -222,6 +244,11 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
     last_stats_time = start_time
     last_termination_check = start_time
     last_resource_check = start_time
+    last_message_time = start_time  # Track time of last received message for idle shutdown
+    idle_shutdown_attempts = 0  # Track how many times we've tried to shut down due to idle
+    
+    # Log idle timeout configuration
+    logger.info(f"Worker configured to shut down after {IDLE_TIMEOUT_SECONDS} seconds of inactivity")
 
     async def process_single_message_async(message):
         """Process a single message using Ray tasks.
@@ -232,6 +259,11 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
         Returns:
             Tuple: (success, job_id, receipt_handle, face_ids or error message, has_faces)
         """
+        global in_progress_tasks
+        
+        # Increment in-progress tasks counter
+        in_progress_tasks += 1
+        
         # Declare variables from outer scope that will be modified
         nonlocal images_with_faces
         nonlocal images_no_faces
@@ -330,6 +362,9 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
             error_details = traceback.format_exc()
             logger.error(f"Error processing job {job_id}: {str(e)}\n{error_details}")
             return False, job_id, receipt_handle, str(e), False
+        finally:
+            # Decrement in-progress tasks counter
+            in_progress_tasks -= 1
 
     try:
         while not shutdown_flag:
@@ -348,6 +383,33 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
                     log_system_resources()
                     last_resource_check = current_time
                     
+                # Check for idle timeout (worker has been idle for too long)
+                idle_time = current_time - last_message_time
+                if idle_time > IDLE_TIMEOUT_SECONDS:
+                    # Check if there are any in-progress tasks
+                    if in_progress_tasks > 0:
+                        logger.info(f"Worker idle for {idle_time:.1f}s but {in_progress_tasks} tasks still in progress, delaying shutdown")
+                        # Continue processing
+                        idle_shutdown_attempts += 1
+                        # If tasks are stuck for too long, force shutdown
+                        if idle_shutdown_attempts > 5:  # After 5 attempts (at least 5 seconds apart)
+                            logger.warning(f"Forcing shutdown after {idle_shutdown_attempts} attempts with tasks stuck in progress")
+                            sys.exit(0)
+                    else:
+                        # Check SQS one last time to make sure there are no messages
+                        # before shutting down
+                        final_check_messages = await sqs_service.receive_messages(max_messages=1)
+                        if not final_check_messages:
+                            logger.info(f"Worker has been idle for {idle_time:.1f} seconds (> {IDLE_TIMEOUT_SECONDS}s), shutting down to enable scale-to-zero")
+                            logger.info("Shutdown will trigger ASG scale-in via ECS-FaceRec-NoRunningTasks alarm")
+                            # Exit with success code
+                            sys.exit(0)
+                        else:
+                            # Found a message, reset the idle timer
+                            logger.info("Found new messages during idle timeout check, continuing")
+                            last_message_time = current_time
+                            idle_shutdown_attempts = 0
+                    
                 # Receive messages from SQS
                 messages = await sqs_service.receive_messages(max_messages=batch_size)
 
@@ -355,6 +417,10 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
                     # No messages, wait a bit before polling again
                     await asyncio.sleep(1)
                     continue
+                
+                # Reset idle timer when messages are received
+                last_message_time = current_time
+                idle_shutdown_attempts = 0
 
                 logger.info(f"Received {len(messages)} messages from SQS")
 
@@ -411,6 +477,8 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
                     logger.info(
                         f"Performance: Avg processing time per image: {avg_time:.2f}s, Total processing time: {total_processing_time:.2f}s"
                     )
+                    # Also log current idle time and active tasks
+                    logger.info(f"Worker state: idle time={idle_time:.1f}s (shutdown after {IDLE_TIMEOUT_SECONDS}s), active tasks={in_progress_tasks}")
                     last_stats_time = current_time
                         
             except Exception as e:
@@ -420,6 +488,20 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
     finally:
         # Clean up resources
         try:
+            logger.info("Shutting down worker gracefully...")
+            
+            # Wait for in-progress tasks to complete (with a timeout)
+            if in_progress_tasks > 0:
+                logger.info(f"Waiting for {in_progress_tasks} tasks to complete...")
+                wait_time = 0
+                max_wait_time = 30  # Maximum seconds to wait for in-progress tasks
+                while in_progress_tasks > 0 and wait_time < max_wait_time:
+                    await asyncio.sleep(1)
+                    wait_time += 1
+                
+                if in_progress_tasks > 0:
+                    logger.warning(f"Forcing shutdown with {in_progress_tasks} tasks still in progress after waiting {wait_time}s")
+            
             # Clean up S3 service
             await s3_service.cleanup()
             logger.info("S3 service cleaned up")
@@ -429,5 +511,7 @@ async def process_messages(sqs_service, region: str, batch_size: int = 10) -> No
                 logger.info("Shutting down Ray...")
                 ray.shutdown()
                 logger.info("Ray shutdown complete")
+                
+            logger.info("Worker shutdown complete - goodbye!")
         except Exception as e:
             logger.error(f"Error during cleanup: {str(e)}")
