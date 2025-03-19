@@ -58,3 +58,14 @@ ec2_user_data.sh
 
 # Metrics
 metrics
+
+# Add terraform.tfvars to gitignore
+terraform/terraform.tfvars
+.terraform/
+terraform/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.tfvars
+!terraform.tfvars.example
+.env.docker

@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",
-        extra="ignore"
+        extra="ignore",
+        env_prefix="",  # No prefix for environment variables
+        env_nested_delimiter="__"  # Use double underscore for nested settings
     )
 
     # Core Settings
