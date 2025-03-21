@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     
     # Worker Settings
     WORKER_IDLE_TIMEOUT: int = 120  # Default to 2 minutes (120 seconds) based on SQS alarm config
+    SQS_BATCH_SIZE: int = 10  # Maximum allowed by SQS ReceiveMessage API
     
     # Pinecone Settings
     PINECONE_API_KEY: str

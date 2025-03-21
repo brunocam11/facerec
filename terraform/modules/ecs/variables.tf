@@ -44,15 +44,15 @@ variable "ecs_task_role_arn" {
 }
 
 variable "task_cpu" {
-  description = "CPU units for the task"
+  description = "CPU units for the task (default: 100% of instance CPU)"
   type        = number
-  default     = 1024
+  default     = 8192  # 8 vCPUs for c5.2xlarge
 }
 
 variable "task_memory" {
-  description = "Memory for the task"
+  description = "Memory for the task (default: 100% of instance memory)"
   type        = number
-  default     = 2048
+  default     = 16384  # 16GB for c5.2xlarge
 }
 
 variable "s3_bucket_name" {

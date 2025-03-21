@@ -43,10 +43,14 @@ resource "aws_ecs_task_definition" "facerec_worker" {
       memory    = var.task_memory
       essential = true
       
+      linuxParameters = {
+        sharedMemorySize = floor(var.task_memory * 0.3)  # 30% of task memory for shared memory
+      }
+      
       environment = [
         {
           name  = "RAY_MEMORY_PER_PROCESS"
-          value = "0.5"
+          value = var.ray_memory_per_process
         },
         {
           name  = "AWS_REGION"
@@ -58,7 +62,7 @@ resource "aws_ecs_task_definition" "facerec_worker" {
         },
         {
           name  = "MIN_FACE_CONFIDENCE"
-          value = "0.65"
+          value = var.min_face_confidence
         },
         {
           name  = "PINECONE_API_KEY"
@@ -66,7 +70,7 @@ resource "aws_ecs_task_definition" "facerec_worker" {
         },
         {
           name  = "SQS_BATCH_SIZE"
-          value = "10"
+          value = var.sqs_batch_size
         },
         {
           name  = "S3_BUCKET_REGION"
@@ -131,12 +135,12 @@ resource "aws_ecs_service" "facerec_worker" {
 resource "aws_cloudwatch_metric_alarm" "sqs_queue_length" {
   alarm_name          = "${var.project_name}-sqs-queue-length-${var.environment}"
   comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
+  evaluation_periods  = 2  # Require 2 evaluation periods
   metric_name         = "ApproximateNumberOfMessagesVisible"
   namespace           = "AWS/SQS"
-  period              = 60
+  period              = 60  # Check every minute
   statistic           = "Average"
-  threshold           = 99  # Scale up when we have 100 or more visible messages
+  threshold           = 100  # Increased threshold
   alarm_description   = "This alarm monitors the SQS queue visible messages for scaling decisions"
   alarm_actions       = [aws_autoscaling_policy.scale_up.arn]
   
@@ -144,8 +148,8 @@ resource "aws_cloudwatch_metric_alarm" "sqs_queue_length" {
     QueueName = var.sqs_queue_name
   }
   
-  treat_missing_data = "notBreaching"  # Don't trigger alarm if data is missing
-  datapoints_to_alarm = 1  # Trigger if 1 datapoint exceeds threshold
+  treat_missing_data = "notBreaching"
+  datapoints_to_alarm = 2  # Require 2 datapoints
   
   tags = {
     Name        = "${var.project_name}-sqs-queue-length-${var.environment}"
@@ -158,9 +162,27 @@ resource "aws_cloudwatch_metric_alarm" "sqs_queue_length" {
 resource "aws_autoscaling_policy" "scale_up" {
   name                   = "${var.project_name}-scale-up-${var.environment}"
   autoscaling_group_name = var.autoscaling_group_name
+  policy_type            = "StepScaling"
   adjustment_type        = "ChangeInCapacity"
-  scaling_adjustment     = 1
-  cooldown              = 180  # 3 minutes cooldown
+  metric_aggregation_type = "Average"
+  estimated_instance_warmup = 180  # 3-minute warmup
+  
+  step_adjustment {
+    scaling_adjustment          = 1
+    metric_interval_lower_bound = 0
+    metric_interval_upper_bound = 500
+  }
+  
+  step_adjustment {
+    scaling_adjustment          = 1
+    metric_interval_lower_bound = 500
+    metric_interval_upper_bound = 1000
+  }
+  
+  step_adjustment {
+    scaling_adjustment          = 1
+    metric_interval_lower_bound = 1000
+  }
 }
 
 resource "aws_autoscaling_policy" "scale_down" {
@@ -168,28 +190,28 @@ resource "aws_autoscaling_policy" "scale_down" {
   autoscaling_group_name = var.autoscaling_group_name
   adjustment_type        = "ChangeInCapacity"
   scaling_adjustment     = -1
-  cooldown              = 180  # 3 minutes cooldown
+  cooldown              = 300  # Increased cooldown for scale down
 }
 
 # Scale Down Alarm
 resource "aws_cloudwatch_metric_alarm" "scale_down" {
   alarm_name          = "${var.project_name}-scale-down-${var.environment}"
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 2
+  evaluation_periods  = 2  # Require 2 evaluation periods
   metric_name         = "ApproximateNumberOfMessagesVisible"
   namespace           = "AWS/SQS"
-  period              = 180  # 3 minutes
+  period              = 120  # Check every 2 minutes
   statistic           = "Average"
-  threshold           = 101  # Scale down when we have less than 101 visible messages
-  alarm_description   = "This alarm triggers scale down when queue has less than 101 visible messages"
+  threshold           = 25  # Scale down when queue has less than 25 messages
+  alarm_description   = "This alarm triggers scale down when queue has fewer messages"
   alarm_actions       = [aws_autoscaling_policy.scale_down.arn]
   
   dimensions = {
     QueueName = var.sqs_queue_name
   }
   
-  treat_missing_data = "notBreaching"  # Don't trigger alarm if data is missing
-  datapoints_to_alarm = 2  # Trigger if 2 datapoints are below threshold
+  treat_missing_data = "notBreaching"
+  datapoints_to_alarm = 2
   
   tags = {
     Name        = "${var.project_name}-scale-down-${var.environment}"
