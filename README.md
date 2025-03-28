@@ -1,81 +1,108 @@
 # Face Recognition Service
 
-A high-performance face recognition service that provides face detection, indexing, and search capabilities through a REST API. This project was created as a cost-effective alternative to AWS Rekognition, offering similar capabilities through a self-hosted solution at a fraction of the cost.
+A distributed face recognition service with separate API and worker components.
 
-## Features
+## Project Structure
 
-- Face detection and analysis
-- Face indexing and search by collection
-- High performance (~50ms per face)
-- Production-ready accuracy (99.77% on LFW)
-- Flexible integration options
-- Self-hosted and cost-effective
+```
+facerec/
+├── docker/
+│   ├── api/              # API service Docker configuration
+│   └── worker/           # Worker service Docker configuration
+├── scripts/
+│   ├── deploy/          # Deployment scripts
+│   └── dev/             # Development scripts
+└── app/                 # Application code
+```
 
 ## Quick Start
 
-```bash
-# Clone repository
-git clone https://github.com/brunocam11/facerec.git
-cd facerec
+1. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your settings
+   ```
 
-# Install dependencies
-poetry install
+2. Start services locally:
+   ```bash
+   # Start API
+   ./scripts/dev/start-api.sh
+   
+   # Start Worker (in another terminal)
+   ./scripts/dev/start-worker.sh
+   ```
 
-# Set environment variables
-cp .env.example .env
-# Edit .env with your settings
+3. Deploy to AWS:
+   ```bash
+   # Deploy API
+   ./scripts/deploy/deploy-api.sh
+   ```
 
-# Run service
-poetry run uvicorn app.main:app --reload
-```
+## Environment Variables
 
-## Configuration
-
-Key settings in `.env`:
-```bash
-# Core Settings
+Required variables in `.env`:
+```env
+# Environment
 ENVIRONMENT=development
-MAX_IMAGE_PIXELS=1920x1080
 
-# Face Recognition
-MAX_FACES_PER_IMAGE=20
+# Face Recognition Settings
+MAX_FACES_PER_IMAGE=10
 MIN_FACE_CONFIDENCE=0.9
 SIMILARITY_THRESHOLD=0.8
 
-# Vector Store (Pinecone)
+# CORS Settings
+ALLOWED_ORIGINS=http://localhost:3000
+
+# Pinecone Settings
 PINECONE_API_KEY=your_key
-PINECONE_INDEX_NAME=face-recognition
+PINECONE_INDEX_NAME=your_index
+
+# AWS Settings
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+AWS_REGION=us-east-1
+AWS_S3_BUCKET=your_bucket
+AWS_S3_BUCKET_REGION=us-east-1
+
+# SQS Settings
+SQS_QUEUE_NAME=your_queue
+SQS_BATCH_SIZE=10
 ```
 
-## Integration
+## Architecture
 
-This service is designed to be flexible and easy to integrate:
+### API Service
+- FastAPI-based REST API
+- Handles face matching requests
+- Deployed on ECS Fargate
+- Scales based on HTTP request load
 
-- Organize faces into collections
-- Reference source images by ID
-- AWS Rekognition-compatible API
-- Independent storage system
+### Worker Service
+- Processes face indexing tasks from SQS
+- Uses Ray for distributed processing
+- Deployed on EC2 spot instances
+- Scales based on SQS queue depth
 
 ## Development
 
-For database changes:
-1. Update models in `app/infrastructure/database/models.py`
-2. Generate migration: `alembic revision --autogenerate -m "Description"`
-3. Apply migration: `alembic upgrade head`
+1. Make changes to the code
+2. Test locally using development scripts
+3. Deploy to AWS using deployment scripts
 
-## Running Tests
+## Troubleshooting
 
-Run tests:
-```bash
-pytest
-```
+1. **Worker not processing messages**
+   - Check SQS queue depth
+   - Verify worker logs
 
-Run tests with detailed output:
-```bash
-pytest -s
-```
+2. **API performance issues**
+   - Check CloudWatch metrics
+   - Verify model cache
 
-The `-s` flag shows print statements and detailed output, which is useful for debugging. Running without `-s` gives a cleaner output focused on test results.
+3. **Deployment failures**
+   - Check AWS credentials
+   - Verify ECR repository exists
+   - Check task definition
 
 ## License
 
