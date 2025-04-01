@@ -55,4 +55,9 @@ class CollectionNotFoundError(VectorStoreError):
 class ServiceNotInitializedError(Exception):
     """Raised when trying to use a service that hasn't been initialized."""
 
+    pass
+
+
+class FileServiceError(FaceRecognitionError):
+    """Raised when there is an error with file operations."""
     pass 
