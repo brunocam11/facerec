@@ -9,6 +9,7 @@ from app.infrastructure.vectordb import PineconeVectorStore
 from app.services import InsightFaceRecognitionService
 from app.services.face_indexing import FaceIndexingService
 from app.services.face_matching import FaceMatchingService
+from app.services.aws.s3 import S3Service
 
 
 async def get_face_recognition_service() -> AsyncGenerator[InsightFaceRecognitionService, None]:
@@ -68,3 +69,49 @@ async def get_face_matching_service(
 ) -> AsyncGenerator[FaceMatchingService, None]:
     service = FaceMatchingService(face_service, vector_store)
     yield service
+
+
+def get_s3_service() -> S3Service:
+    """Get S3 service instance."""
+    return S3Service()
+
+def get_face_recognition_service_instance() -> InsightFaceRecognitionService:
+    """Get face recognition service instance."""
+    return InsightFaceRecognitionService()
+
+
+def get_vector_store_instance() -> PineconeVectorStore:
+    """Get vector store instance."""
+    return PineconeVectorStore()
+
+
+def get_indexing_service_instance(
+    face_service: InsightFaceRecognitionService = Depends(get_face_recognition_service_instance),
+    vector_store: PineconeVectorStore = Depends(get_vector_store_instance)
+) -> FaceIndexingService:
+    """Get face indexing service instance.
+
+    Args:
+        face_service: Face recognition service instance
+        vector_store: Vector store instance
+
+    Returns:
+        FaceIndexingService instance
+    """
+    return FaceIndexingService(face_service, vector_store)
+
+
+def get_face_matching_service_instance(
+    face_service: InsightFaceRecognitionService = Depends(get_face_recognition_service_instance),
+    vector_store: PineconeVectorStore = Depends(get_vector_store_instance)
+) -> FaceMatchingService:
+    """Get face matching service instance.
+
+    Args:
+        face_service: Face recognition service instance
+        vector_store: Vector store instance
+
+    Returns:
+        FaceMatchingService instance
+    """
+    return FaceMatchingService(face_service, vector_store)
