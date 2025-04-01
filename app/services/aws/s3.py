@@ -65,6 +65,30 @@ class S3Service:
             logger.error(f"Failed to initialize S3 service: {str(e)}")
             raise
     
+    async def get_file_bytes(self, bucket: str, object_key: str) -> bytes:
+        """
+        Get file bytes from S3.
+        
+        Args:
+            bucket: S3 bucket name
+            object_key: S3 object key
+            
+        Returns:
+            File bytes
+            
+        Raises:
+            Exception: If file retrieval fails
+        """
+        if not self.initialized:
+            await self.initialize()
+            
+        try:
+            response = self.s3.get_object(Bucket=bucket, Key=object_key)
+            return response['Body'].read()
+        except Exception as e:
+            logger.error(f"Failed to get file from S3: {str(e)}")
+            raise
+    
     async def cleanup(self) -> None:
         """Clean up resources."""
         logger.info("Cleaning up S3 service resources")
