@@ -26,10 +26,10 @@ facerec/
 2. Start services locally:
    ```bash
    # Start API
-   ./scripts/dev/start-api.sh
+   ./scripts/dev/run_dev_api.sh
    
    # Start Worker (in another terminal)
-   ./scripts/dev/start-worker.sh
+   ./scripts/dev/run_dev_worker.sh
    ```
 
 3. Deploy to AWS:
