@@ -9,7 +9,7 @@ from app.api.models.face import (
     MatchFacesRequest,
     FaceRecord,
 )
-from app.core.exceptions import FileServiceError, InvalidImageError, NoFaceDetectedError, VectorStoreError
+from app.core.exceptions import InvalidImageError, NoFaceDetectedError, VectorStoreError
 from app.core.logging import get_logger
 from app.domain.value_objects.recognition import SearchResult
 from app.infrastructure.dependencies import (

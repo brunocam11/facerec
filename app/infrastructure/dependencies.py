@@ -9,9 +9,6 @@ from app.infrastructure.vectordb import PineconeVectorStore
 from app.services import InsightFaceRecognitionService
 from app.services.face_indexing import FaceIndexingService
 from app.services.face_matching import FaceMatchingService
-from app.services.aws.s3 import S3Service
-from app.services.file_service import FileService
-from app.core.config import settings
 
 
 async def get_face_recognition_service() -> AsyncGenerator[InsightFaceRecognitionService, None]:
