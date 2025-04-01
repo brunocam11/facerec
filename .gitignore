@@ -36,7 +36,7 @@ ENV/
 .DS_Store
 
 # Project specific
-.model_cache/*
+/model_cache/
 *.log
 logs/
 tmp/
@@ -69,4 +69,3 @@ terraform/.terraform/
 *.tfvars
 !terraform.tfvars.example
 .env.docker
-/model_cache/models/buffalo_l.zip
