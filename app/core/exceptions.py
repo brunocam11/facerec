@@ -55,4 +55,4 @@ class CollectionNotFoundError(VectorStoreError):
 class ServiceNotInitializedError(Exception):
     """Raised when trying to use a service that hasn't been initialized."""
 
-    pass 
+    pass

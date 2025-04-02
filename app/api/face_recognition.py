@@ -1,20 +1,26 @@
 """Face recognition API endpoints."""
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, File, UploadFile
 from starlette.responses import JSONResponse
 
-from app.api.models.face import IndexFacesResponse, FaceRecord
+from app.api.models.face import (
+    IndexFacesResponse,
+    MatchFacesRequest,
+    FaceRecord,
+)
 from app.core.exceptions import InvalidImageError, NoFaceDetectedError, VectorStoreError
 from app.core.logging import get_logger
 from app.domain.value_objects.recognition import SearchResult
 from app.infrastructure.dependencies import (
     get_face_matching_service,
     get_indexing_service,
+    get_s3_service,
 )
 from app.services.face_indexing import FaceIndexingService
 from app.services.face_matching import FaceMatchingService
 from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
+from app.services.aws.s3 import S3Service
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -127,19 +133,17 @@ async def index_faces(
     response_class=JSONResponse
 )
 async def match_faces(
-    image: UploadFile = File(...),
-    collection_id: str = Form(..., description="Collection to search in"),
-    threshold: float = Form(0.5, description="Similarity threshold"),
+    request: MatchFacesRequest,
     face_matching_service: FaceMatchingService = Depends(
         get_face_matching_service),
+    s3_service: S3Service = Depends(get_s3_service),
 ) -> SearchResult:
     """Match faces in a collection.
 
     Args:
-        image: Image file containing faces to match
-        collection_id: Collection to search in
-        threshold: Similarity threshold
+        request: Match faces request containing S3 and collection details
         face_matching_service: Face matching service instance
+        s3_service: S3 service instance
 
     Returns:
         SearchResult containing the query face and the similar faces
@@ -148,13 +152,13 @@ async def match_faces(
         HTTPException: If image processing or storage fails
     """
     try:
-        # Read image bytes
-        image_bytes = await image.read()
+        # Get image from S3 using s3 service
+        image_bytes = await s3_service.get_file_bytes(request.bucket, request.object_key)
 
         return await face_matching_service.match_faces_in_a_collection(
             image_bytes=image_bytes,
-            collection_id=collection_id,
-            threshold=threshold,
+            collection_id=request.collection_id,
+            threshold=request.threshold,
         )
 
     except Exception as e:

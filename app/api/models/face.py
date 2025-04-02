@@ -52,4 +52,21 @@ class IndexFacesResponse(BaseModel):
 
 class MatchFacesResponse(BaseModel):
     """Response model for face matching endpoint."""
-    face_matches: List[FaceMatch] = Field(..., description="Similar faces found") 
+    face_matches: List[FaceMatch] = Field(..., description="Similar faces found")
+
+
+class IndexFacesRequest(BaseModel):
+    """Request for face indexing operation."""
+    bucket: str = Field(..., description="S3 bucket containing the image")
+    object_key: str = Field(..., description="S3 object key for the image")
+    collection_id: str = Field(..., description="Collection where faces will be indexed")
+    image_id: str = Field(..., description="Source image identifier")
+    max_faces: Optional[int] = Field(5, description="Maximum number of faces to index")
+
+
+class MatchFacesRequest(BaseModel):
+    """Request for face matching operation."""
+    bucket: str = Field(..., description="S3 bucket containing the query image")
+    object_key: str = Field(..., description="S3 object key for the query image")
+    collection_id: str = Field(..., description="Collection to search in")
+    threshold: float = Field(0.5, description="Similarity threshold") 

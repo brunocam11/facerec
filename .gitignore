@@ -36,7 +36,7 @@ ENV/
 .DS_Store
 
 # Project specific
-.model_cache/
+/model_cache/
 *.log
 logs/
 tmp/
