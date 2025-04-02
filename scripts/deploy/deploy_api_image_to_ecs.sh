@@ -1,5 +1,33 @@
 #!/bin/bash
 
+#==============================================================================
+# deploy_api_image_to_ecs.sh
+#==============================================================================
+#
+# This script handles the deployment of the FaceRec API Docker image to AWS ECS.
+# It is designed for regular code deployments and assumes the infrastructure
+# (ECS cluster, service, task definition) is already set up via Terraform.
+#
+# Usage:
+#   ./deploy_api_image_to_ecs.sh
+#
+# Prerequisites:
+#   - AWS CLI configured with appropriate credentials
+#   - Docker installed and running
+#   - .env.prod.api file with required environment variables
+#   - Existing ECS cluster and service (managed by Terraform)
+#
+# What this script does:
+#   1. Builds the Docker image for linux/amd64
+#   2. Pushes the image to ECR
+#   3. Gets the latest task definition
+#   4. Updates the ECS service to use the new image
+#
+# Note: This script is for code deployments only. For infrastructure changes
+#       (environment variables, CPU/memory, etc.), use Terraform instead.
+#
+#==============================================================================
+
 # Exit on error
 set -e
 
@@ -23,31 +51,19 @@ docker build --platform linux/amd64 -t ${ECR_REPOSITORY_NAME}:latest -f docker/a
 echo "🔑 Logging into ECR..."
 aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-# Create ECR repository if it doesn't exist
-aws ecr describe-repositories --repository-names ${ECR_REPOSITORY_NAME} || \
-    aws ecr create-repository --repository-name ${ECR_REPOSITORY_NAME}
-
 # Tag and push image
 echo "⬆️ Pushing image to ECR..."
 docker tag ${ECR_REPOSITORY_NAME}:latest ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:latest
 docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}:latest
 
-# Update task definition
-echo "📝 Updating task definition..."
-TASK_DEFINITION_FILE="docker/api/task-definition.json"
-
-# Replace placeholders in task definition
-sed -i.bak "s/\${AWS_ACCOUNT_ID}/${AWS_ACCOUNT_ID}/g" ${TASK_DEFINITION_FILE}
-sed -i.bak "s/\${AWS_REGION}/${AWS_REGION}/g" ${TASK_DEFINITION_FILE}
-sed -i.bak "s/\${ECR_REPOSITORY_URI}/${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com\/${ECR_REPOSITORY_NAME}/g" ${TASK_DEFINITION_FILE}
-
-# Register new task definition
-TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
-    --cli-input-json file://${TASK_DEFINITION_FILE} \
+# Get the latest task definition
+echo "📝 Getting latest task definition..."
+TASK_DEFINITION_ARN=$(aws ecs describe-task-definition \
+    --task-definition facerec-worker-task-staging \
     --query 'taskDefinition.taskDefinitionArn' \
     --output text)
 
-# Update service
+# Update service with the latest task definition
 echo "🔄 Updating ECS service..."
 aws ecs update-service \
     --cluster ${ECS_CLUSTER_NAME} \
