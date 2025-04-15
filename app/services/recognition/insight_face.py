@@ -20,16 +20,13 @@ Example:
     # Detect faces in an image
     with open("image.jpg", "rb") as f:
         result = await service.detect_faces(f.read(), max_faces=5)
-        
-    # Compare two faces
-    result = await service.compare_faces(image1_bytes, image2_bytes)
-    print(f"Similarity: {result.similarity}%")
     ```
 
 Note:
     This implementation uses CPU inference by default. For GPU support,
     modify the providers list in __init__ to include 'CUDAExecutionProvider'.
 """
+import math
 from typing import Any, List, Optional, TypeVar
 
 import cv2
@@ -39,7 +36,6 @@ from insightface.app.common import Face as InsightFace
 
 from app.core.config import settings
 from app.core.exceptions import (
-    ImageTooLargeError,
     InvalidImageError,
     MultipleFacesError,
     NoFaceDetectedError,
@@ -53,7 +49,6 @@ from app.domain.value_objects.recognition import (
     FaceMatch,
     SearchResult,
 )
-import math
 
 logger = get_logger(__name__)
 
@@ -134,16 +129,16 @@ class InsightFaceRecognitionService(FaceRecognitionService):
                 scale = math.sqrt(settings.MAX_IMAGE_PIXELS / pixels)
                 new_width = int(width * scale)
                 new_height = int(height * scale)
-                
+
                 logger.info(
                     "Resizing large image",
                     original_size=(width, height),
                     new_size=(new_width, new_height)
                 )
-                
+
                 img = cv2.resize(
-                    img, 
-                    (new_width, new_height), 
+                    img,
+                    (new_width, new_height),
                     interpolation=cv2.INTER_AREA
                 )
 
@@ -183,7 +178,7 @@ class InsightFaceRecognitionService(FaceRecognitionService):
             bounding_box=bounding_box,
             # Convert to percentage
             confidence=float(face_data.det_score * 100),
-            embedding=face_data.embedding.tolist() if face_data.embedding is not None else None
+            embedding=face_data.embedding if face_data.embedding is not None else None
         )
 
     async def _process_image(
@@ -254,9 +249,9 @@ class InsightFaceRecognitionService(FaceRecognitionService):
         Detect faces with non-blocking processing.
         """
         img = await self._load_and_validate_image(image_bytes)
-        
+
         faces = await self._process_image(img, max_faces)
-        
+
         return DetectionResult(
             faces=[self._convert_to_face(face) for face in faces]
         )
@@ -291,76 +286,6 @@ class InsightFaceRecognitionService(FaceRecognitionService):
             raise NoFaceDetectedError("No faces detected in image")
 
         return [self._convert_to_face(face) for face in faces]
-
-    async def compare_faces(
-        self,
-        source_image: bytes,
-        target_image: bytes,
-        similarity_threshold: Optional[float] = None,
-    ) -> ComparisonResult:
-        """
-        Compare faces between two images.
-
-        This method detects faces in both images and computes their similarity
-        score using cosine similarity of their embedding vectors.
-
-        Args:
-            source_image: Raw image data of the source face
-            target_image: Raw image data of the target face
-            similarity_threshold: Minimum similarity score (0-100)
-
-        Returns:
-            ComparisonResult: Contains both faces and their similarity score
-
-        Raises:
-            InvalidImageError: If any image format is invalid
-            ImageTooLargeError: If any image dimensions exceed limits
-            NoFaceDetectedError: If no face is found in either image
-            MultipleFacesError: If multiple faces found in either image
-        """
-        try:
-            source_faces = await self.get_faces_with_embeddings(source_image, max_faces=1)
-            target_faces = await self.get_faces_with_embeddings(target_image, max_faces=1)
-
-            if len(source_faces) > 1:
-                logger.warning("Multiple faces found in source image")
-                raise MultipleFacesError(
-                    "Multiple faces found in source image")
-            if len(target_faces) > 1:
-                logger.warning("Multiple faces found in target image")
-                raise MultipleFacesError(
-                    "Multiple faces found in target image")
-
-            source_face = source_faces[0]
-            target_face = target_faces[0]
-
-            similarity = self._calculate_similarity(
-                np.array(source_face.embedding),
-                np.array(target_face.embedding)
-            )
-
-            logger.debug(
-                "Face comparison completed",
-                similarity=similarity,
-                threshold=similarity_threshold or settings.SIMILARITY_THRESHOLD
-            )
-
-            return ComparisonResult(
-                source_face=source_face,
-                target_face=target_face,
-                similarity=similarity,
-                matches=similarity >= (
-                    similarity_threshold or settings.SIMILARITY_THRESHOLD)
-            )
-        except Exception as e:
-            if isinstance(e, (MultipleFacesError, NoFaceDetectedError)):
-                raise
-            logger.error(
-                "Face comparison failed",
-                error=str(e),
-                exc_info=True
-            )
-            raise
 
     async def search_faces(
         self,
