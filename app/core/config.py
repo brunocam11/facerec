@@ -1,15 +1,26 @@
 """Configuration settings for the facial recognition service."""
-from typing import List
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings."""
+    """Application settings.
     
+    These settings are loaded from environment variables with the following precedence:
+    1. Environment variables
+    2. .env file
+    3. Default values
+    
+    Attributes:
+        PINECONE_API_KEY: API key for Pinecone vector database
+        PINECONE_INDEX_NAME: Name of the Pinecone index to use
+        SIMILARITY_THRESHOLD: Default similarity threshold for face matching (0-100)
+    """
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
         env_prefix="",  # No prefix for environment variables
         env_nested_delimiter="__"  # Use double underscore for nested settings
@@ -32,7 +43,6 @@ class Settings(BaseSettings):
     # Face Recognition Settings
     MAX_FACES_PER_IMAGE: int = 20
     MIN_FACE_CONFIDENCE: float = 0.9
-    SIMILARITY_THRESHOLD: float = 0.8
     MODEL_CACHE_DIR: str = ".model_cache"
     MAX_IMAGE_PIXELS: int = 1920 * 1080  # ~2MP (Full HD)
     MAX_MATCHES: int = 100  # Maximum number of matches to return from search
@@ -44,7 +54,7 @@ class Settings(BaseSettings):
     
     # Pinecone Settings
     PINECONE_API_KEY: str
-    PINECONE_INDEX_NAME: str
+    PINECONE_INDEX_NAME: str = "face-recognition"
     
     # AWS Settings
     AWS_ACCESS_KEY_ID: str = ""
@@ -55,5 +65,14 @@ class Settings(BaseSettings):
     
     # SQS Settings
     SQS_QUEUE_NAME: str = "facerec-indexing-staging-queue"
+
+    # Face matching settings
+    SIMILARITY_THRESHOLD: float = 80.0
+
+    # Optional settings with defaults
+    LOG_LEVEL: str = "INFO"
+    DEBUG: bool = False
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
 
 settings = Settings()

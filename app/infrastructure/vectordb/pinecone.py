@@ -1,7 +1,6 @@
 """Pinecone implementation of vector store for face embeddings."""
 from typing import List, Optional
 from datetime import datetime
-import uuid
 
 import numpy as np
 from pinecone import Pinecone
@@ -79,7 +78,11 @@ class PineconeVectorStore(VectorStore):
     """Pinecone implementation of vector store for face embeddings."""
 
     def __init__(self) -> None:
-        """Initialize Pinecone client and index."""
+        """Initialize Pinecone client and index.
+        
+        Raises:
+            VectorStoreError: If initialization fails
+        """
         try:
             pc = Pinecone(api_key=settings.PINECONE_API_KEY)
 
@@ -189,7 +192,18 @@ class PineconeVectorStore(VectorStore):
         image_id: str,
         collection_id: str,
     ) -> tuple[List[VectorFaceRecord], Optional[str]]:
-        """Retrieve face records for a given image ID from a collection namespace."""
+        """Retrieve face records for a given image ID from a collection namespace.
+        
+        Args:
+            image_id: Original image identifier
+            collection_id: Collection namespace in Pinecone
+            
+        Returns:
+            Tuple of (list of face records, detection_id)
+            
+        Raises:
+            VectorStoreError: If retrieval operation fails
+        """
         try:
             # Query Pinecone in the collection namespace
             response = self.index.query(
@@ -248,16 +262,15 @@ class PineconeVectorStore(VectorStore):
                         external_image_id=image_id,
                         detection_id=match.metadata.get("detection_id"),
                         confidence=float(match.metadata.get("confidence", 0)),
-                        embedding=np.array(match.values),
                         bbox_left=float(match.metadata.get("bbox_left", 0)),
                         bbox_top=float(match.metadata.get("bbox_top", 0)),
                         bbox_width=float(match.metadata.get("bbox_width", 0)),
                         bbox_height=float(match.metadata.get("bbox_height", 0)),
-                        created_at=created_at,
+                        created_at=created_at
                     ))
                 except Exception as e:
                     logger.error(
-                        "Failed to convert face record",
+                        "Failed to parse face record",
                         error=str(e),
                         face_id=match.id,
                         collection_id=collection_id,
@@ -275,7 +288,7 @@ class PineconeVectorStore(VectorStore):
                 collection_id=collection_id,
                 exc_info=True
             )
-            raise VectorStoreError(f"Failed to retrieve faces: {str(e)}")
+            raise VectorStoreError(f"Failed to retrieve faces by image ID: {str(e)}")
 
     async def search_faces(
         self,
@@ -283,157 +296,183 @@ class PineconeVectorStore(VectorStore):
         collection_id: str,
         similarity_threshold: Optional[float] = None,
     ) -> SearchResult:
-        """Search for similar faces in a collection namespace.
-        
-        This implementation uses Pinecone's ANN search with cosine similarity.
-        Cosine similarity scores from Pinecone range from -1 to 1, where:
-        - 1 means vectors are identical
-        - 0 means vectors are orthogonal (unrelated)
-        - -1 means vectors are opposite
-        
-        We transform these scores to a 0-100 scale for better usability:
-        - 100 means perfect match (cosine similarity of 1)
-        - 50 means unrelated (cosine similarity of 0)
-        - 0 means opposite (cosine similarity of -1)
+        """Search for similar faces in a collection.
         
         Args:
             query_face: Face to search for
             collection_id: Collection namespace in Pinecone
-            similarity_threshold: Minimum similarity threshold (0-1 scale)
-            max_matches: Maximum number of matches to return
+            similarity_threshold: Minimum similarity score (0-100)
             
         Returns:
-            SearchResult with face matches and their similarity scores (0-100)
+            SearchResult containing the matches found
             
         Raises:
             VectorStoreError: If search operation fails
         """
         try:
-            # Set defaults from settings
-            threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
-
-            # Ensure query embedding is normalized for optimal cosine similarity
-            if query_face.embedding is None:
-                raise VectorStoreError("Query face has no embedding")
-                
-            # Normalize the query embedding vector for better cosine similarity results
+            # Normalize query embedding
             query_embedding = query_face.embedding
+            if query_embedding is None:
+                raise VectorStoreError("Query face has no embedding")
+
             norm = np.linalg.norm(query_embedding)
             if norm > 0:
-                normalized_query = query_embedding / norm
+                normalized_embedding = query_embedding / norm
             else:
-                normalized_query = query_embedding
+                normalized_embedding = query_embedding
 
-            # Query Pinecone in the collection namespace
-            results = self.index.query(
-                vector=normalized_query.tolist(),
+            # Convert similarity threshold from [0, 100] to [-1, 1]
+            if similarity_threshold is not None:
+                # Transform from [0, 100] to [0, 1]
+                normalized_threshold = similarity_threshold / 100
+                # Transform from [0, 1] to [-1, 1]
+                cosine_threshold = (normalized_threshold * 2) - 1
+            else:
+                cosine_threshold = None
+
+            # Search in Pinecone
+            response = self.index.query(
+                vector=normalized_embedding.tolist(),
                 namespace=collection_id,
-                top_k=100,
                 include_metadata=True,
-                include_values=True
+                include_values=True,
+                top_k=100,
+                filter=None  # No metadata filtering for search
             )
 
-            # Convert results to domain model
-            matches = []
-            for match in results.matches:
-                # Transform cosine similarity from [-1, 1] to [0, 100]
-                similarity_score = transform_cosine_similarity(match.score)
-                
-                # Skip results below threshold
-                if similarity_score < threshold * 100:  # Convert threshold to same scale
+            if not response or not response.matches:
+                logger.debug(
+                    "No matches found",
+                    collection_id=collection_id,
+                    threshold=similarity_threshold
+                )
+                return SearchResult(searched_face_id="", face_matches=[])
+
+            # Convert matches to FaceMatch objects
+            face_matches = []
+            for match in response.matches:
+                if not match.metadata or not match.values:
+                    logger.warning(
+                        "Missing metadata or vector values for match",
+                        face_id=match.id,
+                        collection_id=collection_id
+                    )
                     continue
 
-                metadata = match.metadata
-                # Reconstruct bounding box from metadata
-                bounding_box = BoundingBox(
-                    left=metadata["bbox_left"],
-                    top=metadata["bbox_top"],
-                    width=metadata["bbox_width"],
-                    height=metadata["bbox_height"]
-                )
+                try:
+                    # Transform cosine similarity to [0, 100] scale
+                    similarity = transform_cosine_similarity(match.score)
 
-                # Convert embedding to numpy array if it exists, otherwise use None
-                embedding = np.array(match.values) if hasattr(match, 'values') and match.values else None
+                    # Skip if below threshold
+                    if similarity_threshold is not None and similarity < similarity_threshold:
+                        continue
 
-                face = Face(
-                    bounding_box=bounding_box,
-                    confidence=metadata["confidence"],
-                    embedding=embedding
-                )
-
-                matches.append(FaceMatch(
-                    face_id=metadata["face_id"],
-                    similarity=similarity_score,  # Use transformed score
-                    image_id=metadata["image_id"]
-                ))
-
-            logger.debug(
-                "Face search completed",
-                collection_id=collection_id,
-                matches_found=len(matches),
-                threshold=threshold
-            )
-
-            # Generate a unique ID for the searched face
-            searched_face_id = str(uuid.uuid4())
+                    face_matches.append(FaceMatch(
+                        face_id=match.id,
+                        similarity=similarity,
+                        bounding_box=BoundingBox(
+                            left=float(match.metadata.get("bbox_left", 0)),
+                            top=float(match.metadata.get("bbox_top", 0)),
+                            width=float(match.metadata.get("bbox_width", 0)),
+                            height=float(match.metadata.get("bbox_height", 0))
+                        )
+                    ))
+                except Exception as e:
+                    logger.error(
+                        "Failed to parse face match",
+                        error=str(e),
+                        face_id=match.id,
+                        collection_id=collection_id,
+                        exc_info=True
+                    )
+                    continue
 
             return SearchResult(
-                searched_face_id=searched_face_id,
-                face_matches=matches
+                searched_face_id=query_face.face_id,
+                face_matches=face_matches
             )
 
         except Exception as e:
             logger.error(
-                "Face search failed",
+                "Failed to search faces",
                 error=str(e),
                 collection_id=collection_id,
+                threshold=similarity_threshold,
                 exc_info=True
             )
-            raise VectorStoreError(f"Face search failed: {str(e)}")
+            raise VectorStoreError(f"Failed to search faces: {str(e)}")
 
     async def delete_face(
         self,
         image_id: str,
         collection_id: str,
     ) -> None:
-        """Delete face embeddings for an image from a collection namespace."""
+        """Delete a face embedding from a collection.
+        
+        Args:
+            image_id: Original image identifier
+            collection_id: Collection namespace in Pinecone
+            
+        Raises:
+            VectorStoreError: If deletion operation fails
+        """
         try:
-            # Delete all vectors with matching image_id in the namespace
-            self.index.delete(
-                filter={"image_id": image_id},
-                namespace=collection_id
-            )
+            # Get all faces for this image
+            faces, _ = await self.get_faces_by_image_id(image_id, collection_id)
+            
+            if not faces:
+                logger.debug(
+                    "No faces found to delete",
+                    image_id=image_id,
+                    collection_id=collection_id
+                )
+                return
 
-            logger.debug(
-                "Deleted face embeddings",
+            # Delete each face
+            for face in faces:
+                self.index.delete(
+                    ids=[face.face_id],
+                    namespace=collection_id
+                )
+
+            logger.info(
+                "Deleted faces",
                 image_id=image_id,
-                collection_id=collection_id
+                collection_id=collection_id,
+                count=len(faces)
             )
 
         except Exception as e:
             logger.error(
-                "Failed to delete face embeddings",
+                "Failed to delete faces",
                 error=str(e),
                 image_id=image_id,
                 collection_id=collection_id,
                 exc_info=True
             )
-            raise VectorStoreError(f"Failed to delete face embeddings: {str(e)}")
+            raise VectorStoreError(f"Failed to delete faces: {str(e)}")
 
     async def delete_collection(
         self,
         collection_id: str,
     ) -> None:
-        """Delete all face embeddings in a collection namespace."""
+        """Delete all face embeddings in a collection.
+        
+        Args:
+            collection_id: Collection namespace in Pinecone
+            
+        Raises:
+            VectorStoreError: If deletion operation fails
+        """
         try:
-            # Delete the entire namespace
+            # Delete all vectors in the namespace
             self.index.delete(
                 delete_all=True,
                 namespace=collection_id
             )
 
-            logger.debug(
-                "Deleted collection namespace",
+            logger.info(
+                "Deleted collection",
                 collection_id=collection_id
             )
 
