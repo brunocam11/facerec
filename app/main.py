@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     )
 
     # Initialize services
-    await container.initialize(app)
+    await container.initialize()
     logger.info("Initialized application services")
 
     yield

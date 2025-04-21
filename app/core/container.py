@@ -1,8 +1,6 @@
 """Service container for dependency injection."""
 from typing import Optional
 
-from fastapi import FastAPI
-
 from app.infrastructure.vectordb import PineconeVectorStore
 from app.services.aws.s3 import S3Service
 from app.services.aws.sqs import SQSService
@@ -20,7 +18,7 @@ class ServiceContainer:
     Example:
         ```python
         container = ServiceContainer()
-        await container.initialize(app)
+        await container.initialize()
         
         # Get services from container
         face_indexing = container.face_indexing_service
@@ -40,12 +38,8 @@ class ServiceContainer:
         self.face_indexing_service: Optional[FaceIndexingService] = None
         self.face_matching_service: Optional[FaceMatchingService] = None
 
-    async def initialize(self, app: FastAPI) -> None:
-        """Initialize all services in the correct order.
-
-        Args:
-            app: FastAPI application instance
-        """
+    async def initialize(self) -> None:
+        """Initialize all services in the correct order."""
         # Initialize infrastructure services first
         self.vector_store = PineconeVectorStore()
         

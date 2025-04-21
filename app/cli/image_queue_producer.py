@@ -248,8 +248,7 @@ async def main():
 
     # Initialize container and services
     container = ServiceContainer()
-    # Pass None since we don't have a FastAPI app here
-    await container.initialize(None)
+    await container.initialize()
 
     try:
         start_time = time.time()
