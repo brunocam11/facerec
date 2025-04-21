@@ -13,9 +13,6 @@ This service is currently optimized for AWS infrastructure. While the core face 
 - Seamless integration with S3 and SQS
 - Production-ready deployment patterns
 
-### Future Plans
-We welcome contributions to support other cloud providers. If you're interested in adding support for another provider, please see our [Contributing Guide](CONTRIBUTING.md).
-
 ## Project Structure
 
 ```
@@ -132,7 +129,7 @@ SQS_BATCH_SIZE=10
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details. Some areas where contributions are particularly welcome:
+We welcome contributions! Some areas where contributions are particularly welcome:
 
 - Support for other cloud providers
 - Additional face recognition models
