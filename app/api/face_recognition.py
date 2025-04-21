@@ -1,16 +1,11 @@
 """Face recognition API endpoints."""
-from typing import List, Optional
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException
 
 from app.api.models.face import (
     FaceIndexingRequest,
     FaceIndexingResponse,
     FaceMatchingRequest,
     FaceMatchingResponse,
-    FaceRecord,
 )
 from app.core.container import container
 from app.core.exceptions import (
@@ -20,10 +15,6 @@ from app.core.exceptions import (
     VectorStoreError,
 )
 from app.core.logging import get_logger
-from app.domain.value_objects.recognition import SearchResult
-from app.services.face_indexing import FaceIndexingService
-from app.services.face_matching import FaceMatchingService
-from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
 
 logger = get_logger(__name__)
 router = APIRouter(
@@ -140,7 +131,8 @@ async def index_faces(request: FaceIndexingRequest) -> FaceIndexingResponse:
             detail="Failed to store face data"
         )
     except Exception as e:
-        logger.error("Unexpected error during face indexing", error=str(e), exc_info=True)
+        logger.error("Unexpected error during face indexing",
+                     error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
             detail="An unexpected error occurred while processing the request"
@@ -232,5 +224,6 @@ async def match_faces(request: FaceMatchingRequest) -> FaceMatchingResponse:
         logger.error("Failed to search face embeddings", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error("Unexpected error during face matching", error=str(e), exc_info=True)
+        logger.error("Unexpected error during face matching",
+                     error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to process image")
