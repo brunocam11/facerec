@@ -2,40 +2,42 @@
 import uuid
 from typing import List, Optional
 
-from app.core.exceptions import InvalidImageError, NoFaceDetectedError, VectorStoreError
+from app.core.exceptions import (
+    InvalidImageError,
+    NoFaceDetectedError,
+    StorageError,
+    VectorStoreError,
+)
 from app.core.logging import get_logger
 from app.domain.entities import BoundingBox
 from app.domain.entities.face import Face
-from app.infrastructure.vectordb import PineconeVectorStore
+from app.domain.interfaces.storage.vector_store import VectorStore
+from app.domain.value_objects.recognition import DetectionResult
 from app.infrastructure.vectordb.models import VectorFaceRecord
 from app.services import InsightFaceRecognitionService
+from app.services.aws.s3 import S3Service
 from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
 
 logger = get_logger(__name__)
 
 
 class FaceIndexingService:
-    """Service for detecting and indexing faces in images.
+    """Service for indexing faces in images.
 
-    This service:
-    1. Detects faces in images using InsightFace
-    2. Extracts face embeddings
-    3. Stores embeddings in a vector database (Pinecone)
-    4. Maintains idempotency by checking for existing faces
+    This service handles the process of detecting faces in images, extracting their embeddings,
+    and storing them in a vector database for later retrieval.
 
     Example:
         ```python
-        face_service = InsightFaceRecognitionService()
+        s3_service = S3Service()
         vector_store = PineconeVectorStore()
-        indexer = FaceIndexingService(face_service, vector_store)
+        recognition_service = InsightFaceRecognitionService()
+        service = FaceIndexingService(s3_service, vector_store, recognition_service)
 
-        with open("image.jpg", "rb") as f:
-            image_bytes = f.read()
-
-        result = await indexer.index_faces(
-            image_id="unique_image_id",
-            image_bytes=image_bytes,
-            collection_id="my_collection",
+        result = await service.index_faces(
+            bucket="my-bucket",
+            key="photos/user123/image.jpg",
+            collection_id="my-collection",
             max_faces=5
         )
         ```
@@ -43,34 +45,37 @@ class FaceIndexingService:
 
     def __init__(
         self,
-        face_service: InsightFaceRecognitionService,
-        vector_store: PineconeVectorStore,
+        s3_service: S3Service,
+        vector_store: VectorStore,
+        recognition_service: InsightFaceRecognitionService,
     ) -> None:
-        """Initialize face indexing service.
+        """Initialize the face indexing service.
 
         Args:
-            face_service: Service for face detection and embedding extraction
+            s3_service: Service for S3 operations
             vector_store: Vector database for storing face embeddings
+            recognition_service: Service for face detection and recognition
         """
-        self._face_service = face_service
+        self._s3_service = s3_service
         self._vector_store = vector_store
+        self._recognition_service = recognition_service
 
     async def index_faces(
         self,
-        image_id: str,
-        image_bytes: bytes,
+        bucket: str,
+        key: str,
         collection_id: str,
         max_faces: Optional[int] = 5,
     ) -> ServiceIndexFacesResponse:
-        """Index faces from image bytes.
+        """Index faces from an image in S3.
 
-        If the image_id already exists in the collection, returns the existing face records
+        If the key already exists in the collection, returns the existing face records
         without reprocessing the image. This ensures idempotency and prevents duplicate
         processing of the same image.
 
         Args:
-            image_id: Source image identifier
-            image_bytes: Raw image bytes
+            bucket: S3 bucket containing the image
+            key: S3 object key (path) of the image
             collection_id: Collection where faces will be stored
             max_faces: Optional maximum number of faces to index
 
@@ -81,37 +86,44 @@ class FaceIndexingService:
             InvalidImageError: If the image format is invalid or corrupted
             NoFaceDetectedError: If no faces are detected in the image
             VectorStoreError: If storing faces in the vector database fails
+            StorageError: If the image cannot be retrieved from S3
         """
         try:
             # Check if image was already processed
             existing_faces, detection_id = await self._vector_store.get_faces_by_image_id(
-                image_id=image_id,
+                image_id=key,  # Using key as the image_id
                 collection_id=collection_id
             )
 
             if existing_faces:
                 logger.info(
                     "Image already indexed, returning existing records",
-                    image_id=image_id,
+                    key=key,
                     collection_id=collection_id,
                     faces_count=len(existing_faces),
                     detection_id=detection_id
                 )
                 return self._convert_existing_faces_to_response(
-                    existing_faces, image_id, detection_id
+                    existing_faces, key, detection_id
                 )
 
             # Generate new detection_id for new processing
             detection_id = str(uuid.uuid4())
             logger.info(
                 "Processing new image",
-                image_id=image_id,
+                key=key,
                 collection_id=collection_id,
-                detection_id=detection_id
+                detection_id=detection_id,
+                bucket=bucket
             )
 
+            # Retrieve image from S3
+            image_bytes = await self._s3_service.get_file(bucket, key)
+            if not image_bytes:
+                raise StorageError(f"Image not found: {bucket}/{key}")
+
             # Detect and extract embeddings for new image
-            faces = await self._face_service.get_faces_with_embeddings(
+            faces = await self._recognition_service.get_faces_with_embeddings(
                 image_bytes,
                 max_faces=max_faces
             )
@@ -119,21 +131,22 @@ class FaceIndexingService:
             if not faces:
                 logger.warning(
                     "No faces detected in image",
-                    image_id=image_id,
+                    key=key,
                     collection_id=collection_id
                 )
                 return ServiceIndexFacesResponse(
                     face_records=[],
                     detection_id=detection_id,
-                    image_id=image_id
+                    image_key=key
                 )
 
+            # Create face records
             face_records = []
             for face in faces:
                 face_record = await self._store_face(
                     face=face,
                     collection_id=collection_id,
-                    image_id=image_id,
+                    key=key,
                     detection_id=detection_id
                 )
                 face_records.append(face_record)
@@ -142,35 +155,35 @@ class FaceIndexingService:
                 "Successfully indexed faces",
                 collection_id=collection_id,
                 faces_count=len(face_records),
-                image_id=image_id,
+                key=key,
                 detection_id=detection_id
             )
 
             return ServiceIndexFacesResponse(
                 face_records=face_records,
                 detection_id=detection_id,
-                image_id=image_id
+                image_key=key
             )
 
         except InvalidImageError as e:
             logger.error(
                 "Invalid image format",
                 error=str(e),
-                image_id=image_id
+                key=key
             )
             raise
         except NoFaceDetectedError as e:
             logger.warning(
                 "No faces detected in image",
                 error=str(e),
-                image_id=image_id
+                key=key
             )
             raise
         except VectorStoreError as e:
             logger.error(
                 "Failed to store faces in vector database",
                 error=str(e),
-                image_id=image_id,
+                key=key,
                 collection_id=collection_id
             )
             raise
@@ -178,7 +191,7 @@ class FaceIndexingService:
             logger.error(
                 "Unexpected error during face indexing",
                 error=str(e),
-                image_id=image_id,
+                key=key,
                 collection_id=collection_id,
                 exc_info=True
             )
@@ -187,14 +200,14 @@ class FaceIndexingService:
     def _convert_existing_faces_to_response(
         self,
         existing_faces: List[VectorFaceRecord],
-        image_id: str,
+        key: str,
         detection_id: str
     ) -> ServiceIndexFacesResponse:
         """Convert existing vector records to API response format.
 
         Args:
             existing_faces: List of existing face records from vector store
-            image_id: Source image identifier
+            key: S3 object key (path) of the source image
             detection_id: Original detection operation ID
 
         Returns:
@@ -202,30 +215,35 @@ class FaceIndexingService:
         """
         face_records = []
         for face in existing_faces:
+            # Create bounding box from individual components
             bounding_box = BoundingBox(
                 left=face.bbox_left,
                 top=face.bbox_top,
                 width=face.bbox_width,
                 height=face.bbox_height
             )
+            
+            # Normalize confidence from 0-100 scale to 0-1 scale
+            normalized_confidence = face.confidence / 100.0 if face.confidence > 1.0 else face.confidence
+            
             face_records.append(ServiceFaceRecord(
                 face_id=face.face_id,
                 bounding_box=bounding_box,
-                confidence=face.confidence,
-                image_id=image_id
+                confidence=normalized_confidence,
+                image_key=key
             ))
 
         return ServiceIndexFacesResponse(
             face_records=face_records,
             detection_id=detection_id,
-            image_id=image_id
+            image_key=key
         )
 
     async def _store_face(
         self,
         face: Face,
         collection_id: str,
-        image_id: Optional[str],
+        key: str,
         detection_id: str
     ) -> ServiceFaceRecord:
         """Store face in vector database and return API response record.
@@ -233,7 +251,7 @@ class FaceIndexingService:
         Args:
             face: Face entity with embedding
             collection_id: Collection where face will be stored
-            image_id: Source image identifier
+            key: S3 object key (path) of the source image
             detection_id: ID grouping faces from same detection operation
 
         Returns:
@@ -244,38 +262,31 @@ class FaceIndexingService:
             VectorStoreError: If storing face in vector database fails
         """
         try:
+            # Generate a unique ID for this specific face
             face_id = str(uuid.uuid4())
 
-            # Create vector database record
-            vector_record = VectorFaceRecord.from_face(
-                face=face,
-                face_id=face_id,
-                collection_id=collection_id,
-                detection_id=detection_id,
-                image_id=image_id
-            )
-
-            # Store in vector database
+            # Store in vector database with both face_id and detection_id
             await self._vector_store.store_face(
                 face=face,
                 collection_id=collection_id,
-                image_id=image_id,
-                face_id=face_id,
+                image_id=key,
+                face_detection_id=face_id,
                 detection_id=detection_id
             )
 
             logger.debug(
                 "Stored face in vector database",
                 face_id=face_id,
+                detection_id=detection_id,
                 collection_id=collection_id,
-                image_id=image_id
+                key=key
             )
 
             # Create API response record
             return ServiceFaceRecord.from_face(
                 face=face,
                 face_id=face_id,
-                image_id=image_id
+                image_key=key
             )
 
         except ValueError as e:

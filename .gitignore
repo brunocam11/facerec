@@ -69,3 +69,5 @@ terraform/.terraform/
 *.tfvars
 !terraform.tfvars.example
 .env.docker
+
+model_cache/

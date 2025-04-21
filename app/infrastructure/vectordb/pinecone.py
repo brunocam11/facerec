@@ -107,8 +107,8 @@ class PineconeVectorStore(VectorStore):
         face: Face,
         collection_id: str,
         image_id: str,
-        face_id: str,
-        detection_id: str,
+        face_detection_id: str,
+        detection_id: str = None,
     ) -> None:
         """Store a face embedding in a collection namespace.
         
@@ -119,24 +119,27 @@ class PineconeVectorStore(VectorStore):
             face: Face object with embedding vector
             collection_id: Collection namespace in Pinecone
             image_id: Original image identifier
-            face_id: Unique identifier for this face
-            detection_id: ID grouping all faces detected in same operation
+            face_detection_id: External system face detection identifier
+            detection_id: ID grouping faces from same detection operation (optional)
             
         Raises:
             VectorStoreError: If storage operation fails
         """
         try:
-            # Use face_id as vector ID for direct lookups
-            vector_id = face_id
+            # Use face_detection_id as vector ID for direct lookups
+            vector_id = face_detection_id
 
             # Get current timestamp
             now = datetime.now().isoformat()
 
+            # Use provided detection_id or fallback to face_detection_id if not provided
+            group_detection_id = detection_id if detection_id else face_detection_id
+
             # Prepare metadata (no need to store collection_id since it's in namespace)
             metadata = PineconeMetadata(
-                face_id=face_id,
+                face_id=face_detection_id,
                 image_id=image_id,
-                detection_id=detection_id,
+                detection_id=group_detection_id,
                 confidence=face.confidence,
                 bbox_left=face.bounding_box.left,
                 bbox_top=face.bounding_box.top,
@@ -169,8 +172,8 @@ class PineconeVectorStore(VectorStore):
 
             logger.debug(
                 "Stored face embedding",
-                face_id=face_id,
-                detection_id=detection_id,
+                face_id=face_detection_id,
+                detection_id=group_detection_id,
                 collection_id=collection_id,
                 image_id=image_id,
                 created_at=now
@@ -180,7 +183,7 @@ class PineconeVectorStore(VectorStore):
             logger.error(
                 "Failed to store face embedding",
                 error=str(e),
-                face_id=face_id,
+                face_id=face_detection_id,
                 collection_id=collection_id,
                 image_id=image_id,
                 exc_info=True
@@ -262,6 +265,7 @@ class PineconeVectorStore(VectorStore):
                         external_image_id=image_id,
                         detection_id=match.metadata.get("detection_id"),
                         confidence=float(match.metadata.get("confidence", 0)),
+                        embedding=np.array(match.values),
                         bbox_left=float(match.metadata.get("bbox_left", 0)),
                         bbox_top=float(match.metadata.get("bbox_top", 0)),
                         bbox_width=float(match.metadata.get("bbox_width", 0)),
@@ -295,6 +299,7 @@ class PineconeVectorStore(VectorStore):
         query_face: Face,
         collection_id: str,
         similarity_threshold: Optional[float] = None,
+        max_matches: Optional[int] = None,
     ) -> SearchResult:
         """Search for similar faces in a collection.
         
@@ -302,6 +307,7 @@ class PineconeVectorStore(VectorStore):
             query_face: Face to search for
             collection_id: Collection namespace in Pinecone
             similarity_threshold: Minimum similarity score (0-100)
+            max_matches: Maximum number of matches to return
             
         Returns:
             SearchResult containing the matches found
@@ -330,13 +336,16 @@ class PineconeVectorStore(VectorStore):
             else:
                 cosine_threshold = None
 
+            # Default max_matches to 100 if not specified
+            top_k = max_matches if max_matches is not None else 100
+
             # Search in Pinecone
             response = self.index.query(
                 vector=normalized_embedding.tolist(),
                 namespace=collection_id,
                 include_metadata=True,
                 include_values=True,
-                top_k=100,
+                top_k=top_k,
                 filter=None  # No metadata filtering for search
             )
 
@@ -404,53 +413,40 @@ class PineconeVectorStore(VectorStore):
 
     async def delete_face(
         self,
-        image_id: str,
+        face_detection_id: str,
         collection_id: str,
     ) -> None:
         """Delete a face embedding from a collection.
         
         Args:
-            image_id: Original image identifier
+            face_detection_id: External system face detection identifier
             collection_id: Collection namespace in Pinecone
             
         Raises:
             VectorStoreError: If deletion operation fails
         """
         try:
-            # Get all faces for this image
-            faces, _ = await self.get_faces_by_image_id(image_id, collection_id)
-            
-            if not faces:
-                logger.debug(
-                    "No faces found to delete",
-                    image_id=image_id,
-                    collection_id=collection_id
-                )
-                return
-
-            # Delete each face
-            for face in faces:
-                self.index.delete(
-                    ids=[face.face_id],
-                    namespace=collection_id
-                )
+            # Delete the face by ID
+            self.index.delete(
+                ids=[face_detection_id],
+                namespace=collection_id
+            )
 
             logger.info(
-                "Deleted faces",
-                image_id=image_id,
-                collection_id=collection_id,
-                count=len(faces)
+                "Deleted face",
+                face_detection_id=face_detection_id,
+                collection_id=collection_id
             )
 
         except Exception as e:
             logger.error(
-                "Failed to delete faces",
+                "Failed to delete face",
                 error=str(e),
-                image_id=image_id,
+                face_detection_id=face_detection_id,
                 collection_id=collection_id,
                 exc_info=True
             )
-            raise VectorStoreError(f"Failed to delete faces: {str(e)}")
+            raise VectorStoreError(f"Failed to delete face: {str(e)}")
 
     async def delete_collection(
         self,

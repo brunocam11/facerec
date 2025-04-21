@@ -7,9 +7,11 @@ import logging
 from typing import Dict, Any, Optional
 
 from app.domain.entities.face import Face
+from app.core.container import container
+from app.core.logging import get_logger
 from app.infrastructure.vectordb import PineconeVectorStore
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 @ray.remote
 class PineconeVectorStoreActor:
@@ -17,8 +19,14 @@ class PineconeVectorStoreActor:
     
     def __init__(self):
         """Initialize a new PineconeVectorStore instance."""
-        self.vector_store = PineconeVectorStore()
-        logger.info(f"PineconeVectorStoreActor initialized with index: {self.vector_store.index_name}")
+        self._vector_store: Optional[PineconeVectorStore] = None
+        logger.info(f"PineconeVectorStoreActor initialized")
+    
+    async def initialize(self) -> None:
+        """Initialize the vector store from the container."""
+        self._vector_store = container.vector_store
+        if not self._vector_store:
+            raise RuntimeError("Vector store not initialized in container")
     
     async def store_face(self, face_dict: Dict[str, Any], collection_id: str, 
                         image_id: str, face_id: str, detection_id: str) -> bool:
@@ -43,15 +51,28 @@ class PineconeVectorStoreActor:
         
         logger.debug(f"Storing face {face_id} for image {image_id} in collection {collection_id}")
         
-        await self.vector_store.store_face(
-            face=face,
-            collection_id=collection_id,
-            image_id=image_id,
-            face_id=face_id,
-            detection_id=detection_id
-        )
-        logger.debug(f"Successfully stored face {face_id} in Pinecone")
-        return True
+        if not self._vector_store:
+            raise RuntimeError("Vector store not initialized")
+
+        try:
+            await self._vector_store.store_face(
+                face=face,
+                collection_id=collection_id,
+                image_id=image_id,
+                face_id=face_id,
+                detection_id=detection_id
+            )
+            logger.debug(f"Successfully stored face {face_id} in Pinecone")
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to store face in vector store",
+                error=str(e),
+                collection_id=collection_id,
+                image_id=image_id,
+                exc_info=True
+            )
+            return False
         
     async def search_faces(self, query_face_dict: Dict[str, Any], 
                           collection_id: str, 
@@ -76,7 +97,10 @@ class PineconeVectorStoreActor:
         logger.debug(f"Searching for similar faces in collection {collection_id} "
                     f"with threshold {similarity_threshold}")
         
-        result = await self.vector_store.search_faces(
+        if not self._vector_store:
+            raise RuntimeError("Vector store not initialized")
+
+        result = await self._vector_store.search_faces(
             query_face=query_face,
             collection_id=collection_id,
             similarity_threshold=similarity_threshold

@@ -1,6 +1,20 @@
 # Face Recognition Service
 
-A distributed face recognition service with separate API and worker components.
+A production-ready, distributed face recognition service built on AWS, with separate API and worker components. This service is optimized for AWS infrastructure but designed with extensibility in mind.
+
+## Cloud Provider Support
+
+This service is currently optimized for AWS infrastructure. While the core face recognition logic is cloud-agnostic, the infrastructure and deployment are AWS-specific. We welcome contributions to support other cloud providers!
+
+### Why AWS?
+- Scalable infrastructure with ECS and EC2
+- Cost-effective with spot instances
+- Robust security features through IAM
+- Seamless integration with S3 and SQS
+- Production-ready deployment patterns
+
+### Future Plans
+We welcome contributions to support other cloud providers. If you're interested in adding support for another provider, please see our [Contributing Guide](CONTRIBUTING.md).
 
 ## Project Structure
 
@@ -10,7 +24,7 @@ facerec/
 │   ├── api/              # API service Docker configuration
 │   └── worker/           # Worker service Docker configuration
 ├── scripts/
-│   ├── deploy/          # Deployment scripts
+│   ├── deploy/          # AWS deployment scripts
 │   └── dev/             # Development scripts
 └── app/                 # Application code
 ```
@@ -20,7 +34,7 @@ facerec/
 1. Set up environment variables:
    ```bash
    cp .env.example .env
-   # Edit .env with your settings
+   # Edit .env with your AWS settings
    ```
 
 2. Start services locally:
@@ -71,17 +85,26 @@ SQS_BATCH_SIZE=10
 
 ## Architecture
 
-### API Service
-- FastAPI-based REST API
-- Handles face matching requests
-- Deployed on ECS Fargate
-- Scales based on HTTP request load
+### AWS Infrastructure
+- **API Service**: Deployed on ECS Fargate
+- **Worker Service**: Deployed on EC2 spot instances
+- **Storage**: S3 for image storage
+- **Queue**: SQS for task distribution
+- **Vector Database**: Pinecone for face embeddings
+- **Auto-scaling**: Based on SQS queue depth and API load
 
-### Worker Service
-- Processes face indexing tasks from SQS
-- Uses Ray for distributed processing
-- Deployed on EC2 spot instances
-- Scales based on SQS queue depth
+### Components
+- **API Service**
+  - FastAPI-based REST API
+  - Handles face matching requests
+  - Scales based on HTTP request load
+  - Integrated with AWS services
+
+- **Worker Service**
+  - Processes face indexing tasks from SQS
+  - Uses Ray for distributed processing
+  - Optimized for EC2 spot instances
+  - Scales based on SQS queue depth
 
 ## Development
 
@@ -94,15 +117,27 @@ SQS_BATCH_SIZE=10
 1. **Worker not processing messages**
    - Check SQS queue depth
    - Verify worker logs
+   - Check EC2 instance status
 
 2. **API performance issues**
    - Check CloudWatch metrics
    - Verify model cache
+   - Monitor ECS task status
 
 3. **Deployment failures**
    - Check AWS credentials
    - Verify ECR repository exists
    - Check task definition
+   - Verify IAM roles and permissions
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details. Some areas where contributions are particularly welcome:
+
+- Support for other cloud providers
+- Additional face recognition models
+- Performance optimizations
+- Documentation improvements
 
 ## License
 

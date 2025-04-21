@@ -16,6 +16,7 @@ class VectorStore(ABC):
         collection_id: str,
         image_id: str,
         face_detection_id: str,
+        detection_id: str = None,
     ) -> None:
         """
         Store a face embedding in a collection.
@@ -25,6 +26,7 @@ class VectorStore(ABC):
             collection_id: External system collection identifier
             image_id: External system image identifier
             face_detection_id: External system face detection identifier
+            detection_id: ID grouping faces from same detection operation (optional)
         
         Raises:
             VectorStoreError: If storage operation fails

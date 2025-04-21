@@ -3,23 +3,30 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-from app.api.models.face import IndexFacesResponse, FaceRecord
-from app.core.exceptions import InvalidImageError, NoFaceDetectedError, VectorStoreError
+from app.api.models.face import (
+    FaceIndexingRequest,
+    FaceIndexingResponse,
+    FaceMatchingRequest,
+    FaceMatchingResponse,
+    FaceRecord,
+)
+from app.core.container import container
+from app.core.exceptions import (
+    InvalidImageError,
+    NoFaceDetectedError,
+    StorageError,
+    VectorStoreError,
+)
 from app.core.logging import get_logger
 from app.domain.value_objects.recognition import SearchResult
-from app.infrastructure.dependencies import (
-    get_face_matching_service,
-    get_indexing_service,
-)
 from app.services.face_indexing import FaceIndexingService
 from app.services.face_matching import FaceMatchingService
 from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
 
 logger = get_logger(__name__)
 router = APIRouter(
-    prefix="/api/v1",
     tags=["face-recognition"],
     responses={
         400: {"description": "Invalid request"},
@@ -28,51 +35,15 @@ router = APIRouter(
 )
 
 # Constants for validation
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 MIN_THRESHOLD = 0.0
 MAX_THRESHOLD = 1.0
 
-# Helper function to convert service models to API models
-def _convert_service_response_to_api_response(
-    service_response: ServiceIndexFacesResponse
-) -> IndexFacesResponse:
-    """Convert service response to API response.
-    
-    Args:
-        service_response: Service layer response
-        
-    Returns:
-        API layer response
-    """
-    face_records = [
-        FaceRecord(
-            face_id=record.face_id,
-            bounding_box=record.bounding_box,
-            confidence=record.confidence,
-            image_id=record.image_id
-        )
-        for record in service_response.face_records
-    ]
-    
-    return IndexFacesResponse(
-        face_records=face_records,
-        detection_id=service_response.detection_id,
-        image_id=service_response.image_id
-    )
-
 
 @router.post(
-    "/faces/index",
-    response_model=IndexFacesResponse,
-    summary="Index faces from an image",
-    description="""
-    Detects faces in an image and adds them to the specified collection for later search.
-    
-    The image must be in JPEG or PNG format and not exceed 10MB in size.
-    Each face detected will be assigned a unique ID and stored in the vector database.
-    """,
-    response_class=JSONResponse,
+    "/index",
+    response_model=FaceIndexingResponse,
+    summary="Index faces in an image",
+    description="Detects faces in an image and stores their embeddings in a collection.",
     responses={
         200: {
             "description": "Faces successfully indexed",
@@ -81,221 +52,185 @@ def _convert_service_response_to_api_response(
                     "example": {
                         "face_records": [
                             {
-                                "face_id": "face-123",
-                                "bounding_box": {"left": 100, "top": 200, "width": 150, "height": 150},
-                                "confidence": 0.95,
-                                "image_id": "img-456"
+                                "face_id": "550e8400-e29b-41d4-a716-446655440000",
+                                "bounding_box": {
+                                    "left": 100,
+                                    "top": 200,
+                                    "width": 150,
+                                    "height": 150,
+                                },
+                                "confidence": 0.99,
+                                "image_key": "photos/user123/image.jpg",
                             }
                         ],
-                        "detection_id": "det-789",
-                        "image_id": "img-456"
+                        "detection_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "image_key": "photos/user123/image.jpg",
                     }
                 }
-            }
+            },
         },
         400: {
             "description": "Invalid request",
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "No faces were detected in the image"
+                        "detail": "Invalid image format. Only JPEG and PNG are supported."
                     }
                 }
-            }
-        }
-    }
+            },
+        },
+        404: {
+            "description": "Image not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Image not found in S3 bucket"}
+                }
+            },
+        },
+        500: {
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to process image"}
+                }
+            },
+        },
+    },
 )
-async def index_faces(
-    image: UploadFile = File(
-        ...,
-        description="Image file containing faces to index (JPEG or PNG, max 10MB)",
-        max_length=MAX_FILE_SIZE
-    ),
-    collection_id: str = Form(
-        ...,
-        description="Collection where faces will be indexed",
-        min_length=1,
-        max_length=100,
-        pattern="^[a-zA-Z0-9_-]+$"
-    ),
-    image_id: str = Form(
-        ...,
-        description="Source image identifier",
-        min_length=1,
-        max_length=100,
-        pattern="^[a-zA-Z0-9_-]+$"
-    ),
-    max_faces: Optional[int] = Form(
-        5,
-        description="Maximum number of faces to index",
-        ge=1,
-        le=20
-    ),
-    indexing_service: FaceIndexingService = Depends(get_indexing_service),
-) -> IndexFacesResponse:
-    """Index faces from an image for later search.
+async def index_faces(request: FaceIndexingRequest) -> FaceIndexingResponse:
+    """Index faces in an image stored in S3.
 
     Args:
-        image: Image file containing faces to index (JPEG or PNG, max 10MB)
-        collection_id: Collection where faces will be stored (alphanumeric with underscores and hyphens)
-        image_id: Source image identifier (alphanumeric with underscores and hyphens)
-        max_faces: Maximum number of faces to index (1-20, default: 5)
-        indexing_service: Face indexing service instance
+        request: Face indexing request containing image location and parameters
 
     Returns:
-        IndexFacesResponse containing the indexed face records
+        FaceIndexingResponse containing indexed face records
 
     Raises:
-        HTTPException: If image processing or storage fails
+        HTTPException: If the request is invalid or processing fails
     """
     try:
-        # Validate file type
-        if image.content_type not in ALLOWED_CONTENT_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_CONTENT_TYPES)}"
-            )
-
-        # Read image bytes
-        image_bytes = await image.read()
-
-        # Delegate to service
-        service_response = await indexing_service.index_faces(
-            image_id=image_id,
-            image_bytes=image_bytes,
-            collection_id=collection_id,
-            max_faces=max_faces,
+        result = await container.face_indexing_service.index_faces(
+            bucket=request.bucket,
+            key=request.key,
+            collection_id=request.collection_id,
+            max_faces=request.max_faces,
         )
+        return FaceIndexingResponse.from_service_response(result)
 
-        return _convert_service_response_to_api_response(service_response)
-
-    except NoFaceDetectedError:
-        raise HTTPException(
-            status_code=400,
-            detail="No faces were detected in the image"
-        )
     except InvalidImageError as e:
+        logger.error("Invalid image format", error=str(e))
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid image format: {str(e)}"
+            detail="Invalid image format. Only JPEG and PNG are supported."
+        )
+    except NoFaceDetectedError as e:
+        logger.warning("No faces detected in image", error=str(e))
+        return FaceIndexingResponse(face_records=[], detection_id="", image_key=request.key)
+    except StorageError as e:
+        logger.error("Failed to retrieve image from S3", error=str(e))
+        raise HTTPException(
+            status_code=404,
+            detail="Image not found or inaccessible"
         )
     except VectorStoreError as e:
+        logger.error("Failed to store face embeddings", error=str(e))
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to store face embeddings: {str(e)}"
+            detail="Failed to store face data"
         )
     except Exception as e:
-        logger.error(
-            "Face indexing failed",
-            error=str(e),
-            exc_info=True
-        )
+        logger.error("Unexpected error during face indexing", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="An unexpected error occurred"
+            detail="An unexpected error occurred while processing the request"
         )
 
 
 @router.post(
-    "/faces/match",
-    response_model=SearchResult,
+    "/match",
+    response_model=FaceMatchingResponse,
     summary="Match faces in a collection",
-    description="""
-    Find similar faces in a specific collection based on a query image.
-    
-    The image must be in JPEG or PNG format and not exceed 10MB in size.
-    The threshold parameter controls how similar faces must be to be considered a match.
-    """,
-    response_class=JSONResponse,
+    description="Finds similar faces in a collection based on a query image.",
     responses={
         200: {
             "description": "Faces successfully matched",
             "content": {
                 "application/json": {
                     "example": {
-                        "searched_face_id": "face-123",
+                        "searched_face_id": "550e8400-e29b-41d4-a716-446655440000",
                         "face_matches": [
                             {
-                                "face_id": "face-456",
+                                "face_id": "550e8400-e29b-41d4-a716-446655440001",
                                 "similarity": 0.95,
-                                "bounding_box": {"left": 100, "top": 200, "width": 150, "height": 150}
+                                "image_id": "image123",
                             }
-                        ]
+                        ],
                     }
                 }
-            }
+            },
         },
         400: {
             "description": "Invalid request",
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "No face detected in the query image"
+                        "detail": "Invalid image format. Only JPEG and PNG are supported."
                     }
                 }
-            }
-        }
-    }
+            },
+        },
+        404: {
+            "description": "Image not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Image not found in S3 bucket"}
+                }
+            },
+        },
+        500: {
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Failed to process image"}
+                }
+            },
+        },
+    },
 )
-async def match_faces(
-    image: UploadFile = File(
-        ...,
-        description="Image file containing faces to match (JPEG or PNG, max 10MB)",
-        max_length=MAX_FILE_SIZE
-    ),
-    collection_id: str = Form(
-        ...,
-        description="Collection to search in",
-        min_length=1,
-        max_length=100,
-        pattern="^[a-zA-Z0-9_-]+$"
-    ),
-    threshold: float = Form(
-        0.5,
-        description="Similarity threshold (0.0 to 1.0)",
-        ge=MIN_THRESHOLD,
-        le=MAX_THRESHOLD
-    ),
-    face_matching_service: FaceMatchingService = Depends(get_face_matching_service),
-) -> SearchResult:
-    """Match faces in a collection.
+async def match_faces(request: FaceMatchingRequest) -> FaceMatchingResponse:
+    """Match faces in a collection based on a query image in S3.
 
     Args:
-        image: Image file containing faces to match (JPEG or PNG, max 10MB)
-        collection_id: Collection to search in (alphanumeric with underscores and hyphens)
-        threshold: Similarity threshold (0.0 to 1.0)
-        face_matching_service: Face matching service instance
+        request: Face matching request containing query image location and parameters
 
     Returns:
-        SearchResult containing the query face and the similar faces
+        FaceMatchingResponse containing matching face records
 
     Raises:
-        HTTPException: If image processing or storage fails
+        HTTPException: If the request is invalid or processing fails
     """
     try:
-        # Validate file type
-        if image.content_type not in ALLOWED_CONTENT_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_CONTENT_TYPES)}"
-            )
-
-        # Read image bytes
-        image_bytes = await image.read()
-
-        return await face_matching_service.match_faces_in_a_collection(
-            image_bytes=image_bytes,
-            collection_id=collection_id,
-            threshold=threshold,
+        result = await container.face_matching_service.match_faces_in_a_collection(
+            bucket=request.bucket,
+            key=request.key,
+            collection_id=request.collection_id,
+            threshold=request.threshold,
         )
+        return FaceMatchingResponse.from_service_response(result)
 
+    except InvalidImageError as e:
+        logger.error("Invalid image format", error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except NoFaceDetectedError as e:
+        logger.warning("No faces detected in query image", error=str(e))
+        return FaceMatchingResponse(searched_face_id="", face_matches=[])
+    except StorageError as e:
+        logger.error("Failed to retrieve image from S3", error=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
+    except VectorStoreError as e:
+        logger.error("Failed to search face embeddings", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error(
-            "Face matching failed",
-            error=str(e),
-            exc_info=True
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred"
-        )
+        logger.error("Unexpected error during face matching", error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process image")
