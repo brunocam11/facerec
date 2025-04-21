@@ -1,5 +1,5 @@
 """Face recognition API endpoints."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.models.face import (
     FaceIndexingRequest,
@@ -7,7 +7,6 @@ from app.api.models.face import (
     FaceMatchingRequest,
     FaceMatchingResponse,
 )
-from app.core.container import container
 from app.core.exceptions import (
     InvalidImageError,
     NoFaceDetectedError,
@@ -15,6 +14,12 @@ from app.core.exceptions import (
     VectorStoreError,
 )
 from app.core.logging import get_logger
+from app.infrastructure.dependencies import (
+    get_face_indexing_service,
+    get_face_matching_service,
+)
+from app.services.face_indexing import FaceIndexingService
+from app.services.face_matching import FaceMatchingService
 
 logger = get_logger(__name__)
 router = APIRouter(
@@ -88,11 +93,15 @@ MAX_THRESHOLD = 1.0
         },
     },
 )
-async def index_faces(request: FaceIndexingRequest) -> FaceIndexingResponse:
+async def index_faces(
+    request: FaceIndexingRequest,
+    service: FaceIndexingService = Depends(get_face_indexing_service)
+) -> FaceIndexingResponse:
     """Index faces in an image stored in S3.
 
     Args:
         request: Face indexing request containing image location and parameters
+        service: Face indexing service provided by dependency injection
 
     Returns:
         FaceIndexingResponse containing indexed face records
@@ -101,7 +110,7 @@ async def index_faces(request: FaceIndexingRequest) -> FaceIndexingResponse:
         HTTPException: If the request is invalid or processing fails
     """
     try:
-        result = await container.face_indexing_service.index_faces(
+        result = await service.index_faces(
             bucket=request.bucket,
             key=request.key,
             collection_id=request.collection_id,
@@ -190,11 +199,15 @@ async def index_faces(request: FaceIndexingRequest) -> FaceIndexingResponse:
         },
     },
 )
-async def match_faces(request: FaceMatchingRequest) -> FaceMatchingResponse:
+async def match_faces(
+    request: FaceMatchingRequest,
+    service: FaceMatchingService = Depends(get_face_matching_service)
+) -> FaceMatchingResponse:
     """Match faces in a collection based on a query image in S3.
 
     Args:
         request: Face matching request containing query image location and parameters
+        service: Face matching service provided by dependency injection
 
     Returns:
         FaceMatchingResponse containing matching face records
@@ -203,7 +216,7 @@ async def match_faces(request: FaceMatchingRequest) -> FaceMatchingResponse:
         HTTPException: If the request is invalid or processing fails
     """
     try:
-        result = await container.face_matching_service.match_faces_in_a_collection(
+        result = await service.match_faces_in_a_collection(
             bucket=request.bucket,
             key=request.key,
             collection_id=request.collection_id,
