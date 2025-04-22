@@ -23,7 +23,15 @@ facerec/
 ├── scripts/
 │   ├── deploy/          # AWS deployment scripts
 │   └── dev/             # Development scripts
-└── app/                 # Application code
+├── app/
+│   ├── api/             # API endpoints and models
+│   ├── cli/             # Command-line tools
+│   ├── consumers/       # SQS message consumers
+│   ├── core/            # Core application components
+│   ├── domain/          # Domain models and interfaces
+│   ├── infrastructure/  # Infrastructure integrations
+│   └── services/        # Business logic services
+└── terraform/           # Infrastructure as code
 ```
 
 ## Quick Start
@@ -135,7 +143,3 @@ We welcome contributions! Some areas where contributions are particularly welcom
 - Additional face recognition models
 - Performance optimizations
 - Documentation improvements
-
-## License
-
-MIT License - See LICENSE file 
