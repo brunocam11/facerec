@@ -15,7 +15,7 @@ class FaceMatch(BaseModel):
     """Face match result from search operation."""
     face_id: str = Field(..., description="Face identifier")
     similarity: float = Field(..., description="Similarity score with searched face")
-    image_id: Optional[str] = Field(None, description="External system image identifier")
+    image_key: str = Field(..., description="S3 object key of the image containing the matched face")
 
 
 class SearchResult(BaseModel):

@@ -30,10 +30,6 @@ router = APIRouter(
     }
 )
 
-# Constants for validation
-MIN_THRESHOLD = 0.0
-MAX_THRESHOLD = 1.0
-
 
 @router.post(
     "/index",
@@ -239,4 +235,4 @@ async def match_faces(
     except Exception as e:
         logger.error("Unexpected error during face matching",
                      error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to process image")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")

@@ -39,7 +39,7 @@ class PineconeMetadata(BaseModel):
     
     Attributes:
         face_id: Unique identifier for this face
-        image_id: Original image identifier
+        image_key: S3 object key of the original image
         detection_id: ID grouping all faces detected in same operation
         confidence: Detection confidence score
         bbox_*: Bounding box coordinates normalized to 0-1 range
@@ -48,8 +48,8 @@ class PineconeMetadata(BaseModel):
     face_id: str = Field(
         description="Unique identifier for this face"
     )
-    image_id: str = Field(
-        description="Original image identifier"
+    image_key: str = Field(
+        description="S3 object key of the original image"
     )
     detection_id: str = Field(
         description="ID grouping faces from same detection operation"
@@ -106,7 +106,7 @@ class PineconeVectorStore(VectorStore):
         self,
         face: Face,
         collection_id: str,
-        image_id: str,
+        image_key: str,
         face_detection_id: str,
         detection_id: str = None,
     ) -> None:
@@ -118,7 +118,7 @@ class PineconeVectorStore(VectorStore):
         Args:
             face: Face object with embedding vector
             collection_id: Collection namespace in Pinecone
-            image_id: Original image identifier
+            image_key: S3 object key of the original image
             face_detection_id: External system face detection identifier
             detection_id: ID grouping faces from same detection operation (optional)
             
@@ -135,10 +135,10 @@ class PineconeVectorStore(VectorStore):
             # Use provided detection_id or fallback to face_detection_id if not provided
             group_detection_id = detection_id if detection_id else face_detection_id
 
-            # Prepare metadata (no need to store collection_id since it's in namespace)
+            # Prepare metadata using image_key
             metadata = PineconeMetadata(
                 face_id=face_detection_id,
-                image_id=image_id,
+                image_key=image_key,
                 detection_id=group_detection_id,
                 confidence=face.confidence,
                 bbox_left=face.bounding_box.left,
@@ -162,10 +162,10 @@ class PineconeVectorStore(VectorStore):
                 self.index.upsert(
                     vectors=[(
                         vector_id,
-                        normalized_embedding.tolist(),  # Use normalized embedding
+                        normalized_embedding.tolist(),
                         metadata.dict()
                     )],
-                    namespace=collection_id  # Use collection_id as namespace
+                    namespace=collection_id
                 )
             else:
                 raise VectorStoreError("Face embedding is None, cannot store in vector database")
@@ -175,7 +175,7 @@ class PineconeVectorStore(VectorStore):
                 face_id=face_detection_id,
                 detection_id=group_detection_id,
                 collection_id=collection_id,
-                image_id=image_id,
+                image_key=image_key,
                 created_at=now
             )
 
@@ -185,20 +185,20 @@ class PineconeVectorStore(VectorStore):
                 error=str(e),
                 face_id=face_detection_id,
                 collection_id=collection_id,
-                image_id=image_id,
+                image_key=image_key,
                 exc_info=True
             )
             raise VectorStoreError(f"Failed to store face embedding: {str(e)}")
 
     async def get_faces_by_image_id(
         self,
-        image_id: str,
+        image_key: str,
         collection_id: str,
     ) -> tuple[List[VectorFaceRecord], Optional[str]]:
-        """Retrieve face records for a given image ID from a collection namespace.
+        """Retrieve face records for a given image key from a collection namespace.
         
         Args:
-            image_id: Original image identifier
+            image_key: S3 object key of the original image
             collection_id: Collection namespace in Pinecone
             
         Returns:
@@ -208,11 +208,11 @@ class PineconeVectorStore(VectorStore):
             VectorStoreError: If retrieval operation fails
         """
         try:
-            # Query Pinecone in the collection namespace
+            # Query Pinecone using image_key
             response = self.index.query(
-                vector=[0] * 512,  # Dummy vector since we're filtering by metadata
+                vector=[0] * 512,
                 filter={
-                    "image_id": image_id
+                    "image_key": image_key
                 },
                 namespace=collection_id,
                 include_metadata=True,
@@ -223,7 +223,7 @@ class PineconeVectorStore(VectorStore):
             if not response or not response.matches:
                 logger.debug(
                     "No faces found for image",
-                    image_id=image_id,
+                    image_key=image_key,
                     collection_id=collection_id
                 )
                 return [], None
@@ -239,7 +239,7 @@ class PineconeVectorStore(VectorStore):
             if not detection_id:
                 logger.warning(
                     "No detection_id found in metadata",
-                    image_id=image_id,
+                    image_key=image_key,
                     collection_id=collection_id
                 )
                 return [], None
@@ -262,7 +262,7 @@ class PineconeVectorStore(VectorStore):
                     records.append(VectorFaceRecord(
                         face_id=match.id,
                         collection_id=collection_id,
-                        external_image_id=image_id,
+                        external_image_id=image_key,
                         detection_id=match.metadata.get("detection_id"),
                         confidence=float(match.metadata.get("confidence", 0)),
                         embedding=np.array(match.values),
@@ -288,7 +288,7 @@ class PineconeVectorStore(VectorStore):
             logger.error(
                 "Failed to retrieve faces by image ID",
                 error=str(e),
-                image_id=image_id,
+                image_key=image_key,
                 collection_id=collection_id,
                 exc_info=True
             )
@@ -376,15 +376,20 @@ class PineconeVectorStore(VectorStore):
                     if similarity_threshold is not None and similarity < similarity_threshold:
                         continue
 
+                    # Get image_key from metadata
+                    image_key_from_metadata = match.metadata.get("image_key")
+                    if image_key_from_metadata is None:
+                        logger.warning(
+                            "Missing image_key in metadata for match, skipping",
+                            face_id=match.id,
+                            collection_id=collection_id
+                        )
+                        continue
+
                     face_matches.append(FaceMatch(
                         face_id=match.id,
                         similarity=similarity,
-                        bounding_box=BoundingBox(
-                            left=float(match.metadata.get("bbox_left", 0)),
-                            top=float(match.metadata.get("bbox_top", 0)),
-                            width=float(match.metadata.get("bbox_width", 0)),
-                            height=float(match.metadata.get("bbox_height", 0))
-                        )
+                        image_key=image_key_from_metadata
                     ))
                 except Exception as e:
                     logger.error(

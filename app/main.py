@@ -1,5 +1,4 @@
 """Main application module for the facial recognition service."""
-import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 
@@ -9,10 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import router as api_v1_router
 from app.core.config import settings
 from app.core.container import container
+from app.core.logging import get_logger, setup_logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+setup_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -25,22 +24,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     Returns:
         AsyncGenerator[Any, None]: Async context manager for app lifecycle
     """
-    # Startup tasks
     logger.info(
         "Starting up facial recognition service",
-        extra={
-            "version": settings.VERSION,
-            "environment": settings.ENVIRONMENT,
-        }
+        version=settings.VERSION,
+        environment=settings.ENVIRONMENT,
     )
 
-    # Initialize services
     await container.initialize()
     logger.info("Initialized application services")
 
     yield
 
-    # Shutdown tasks
     logger.info("Shutting down facial recognition service")
     await container.cleanup()
     logger.info("Cleaned up application resources")
@@ -54,7 +48,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -63,7 +56,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routers
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
 

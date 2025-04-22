@@ -4,75 +4,65 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from app.domain.entities.face import BoundingBox, Face
-from app.domain.value_objects.recognition import FaceMatch
+# Import the domain FaceMatch model (used implicitly in from_service_response)
+from app.domain.value_objects.recognition import FaceMatch as DomainFaceMatch # Keep alias for clarity
 from app.services.models import ServiceIndexFacesResponse, ServiceSearchResult
+
+# Constants for validation ranges used in API models
+MIN_THRESHOLD = 0.0
+MAX_THRESHOLD = 1.0
 
 
 class FaceRecord(BaseModel):
-    """Face record returned by API operations.
-
-    This model represents the public API contract for face data.
-    It excludes sensitive information like embeddings.
-    """
+    """API model for a single face record in responses."""
     face_id: str = Field(..., description="Unique identifier for the face")
     bounding_box: BoundingBox = Field(...,
                                       description="Face bounding box coordinates")
     confidence: float = Field(...,
-                              description="Face detection confidence score", ge=0.0, le=1.0)
-    image_key: str = Field(...,
-                           description="S3 object key (path) of the source image")
+                              description="Face detection confidence score",
+                              ge=MIN_THRESHOLD, le=MAX_THRESHOLD)
+    # S3 Key for the image associated with this face record
+    image_key: Optional[str] = Field(None,
+                                     description="S3 object key (path) of the source image")
 
     @classmethod
     def from_face(cls, face: Face, face_id: str, image_key: Optional[str] = None) -> "FaceRecord":
-        """Create an API record from a face entity.
-
-        Args:
-            face: Face entity
-            face_id: Unique identifier for the face
-            image_key: S3 object key (path) of the source image
-
-        Returns:
-            FaceRecord instance for API response
-        """
+        """Create an API FaceRecord from a domain Face entity."""
+        # Use provided image_key or try to get it from the Face object
+        img_key = image_key or getattr(face, 'image_key', None)
         return cls(
             face_id=face_id,
             bounding_box=face.bounding_box,
             confidence=face.confidence,
-            image_key=image_key
+            image_key=img_key
         )
 
+
 class FaceIndexingRequest(BaseModel):
-    """Request model for indexing faces."""
+    """Request model for the /index endpoint."""
     bucket: str = Field(
         ...,
         description="S3 bucket containing the image",
-        min_length=1,
-        max_length=63,
-        pattern="^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
+        min_length=1, max_length=63, pattern="^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
     )
     key: str = Field(
         ...,
         description="S3 object key (path) of the image",
-        min_length=1,
-        max_length=1024
+        min_length=1, max_length=1024
     )
     collection_id: str = Field(
         ...,
         description="Collection where faces will be indexed",
-        min_length=1,
-        max_length=100,
-        pattern="^[a-zA-Z0-9_-]+$"
+        min_length=1, max_length=100, pattern="^[a-zA-Z0-9_-]+$"
     )
     max_faces: Optional[int] = Field(
         5,
-        description="Maximum number of faces to index",
-        ge=1,
-        le=20
+        description="Maximum number of faces to index", ge=1, le=20
     )
 
 
 class FaceIndexingResponse(BaseModel):
-    """Response model for indexed faces."""
+    """Response model for the /index endpoint."""
     face_records: List[FaceRecord] = Field(...,
                                            description="List of indexed face records")
     detection_id: str = Field(...,
@@ -82,15 +72,8 @@ class FaceIndexingResponse(BaseModel):
 
     @classmethod
     def from_service_response(cls, service_response: ServiceIndexFacesResponse) -> "FaceIndexingResponse":
-        """Convert service response to API response.
-
-        Args:
-            service_response: Service layer response
-
-        Returns:
-            API layer response
-        """
-        face_records = [
+        """Convert the service layer response (ServiceIndexFacesResponse) to the API response model."""
+        api_face_records = [
             FaceRecord(
                 face_id=record.face_id,
                 bounding_box=record.bounding_box,
@@ -99,81 +82,71 @@ class FaceIndexingResponse(BaseModel):
             )
             for record in service_response.face_records
         ]
-
         return cls(
-            face_records=face_records,
+            face_records=api_face_records,
             detection_id=service_response.detection_id,
             image_key=service_response.image_key
         )
 
 
 class FaceMatchingRequest(BaseModel):
-    """Request model for matching faces."""
+    """Request model for the /match endpoint."""
     bucket: str = Field(
         ...,
         description="S3 bucket containing the query image",
-        min_length=1,
-        max_length=63,
-        pattern="^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
+        min_length=1, max_length=63, pattern="^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
     )
     key: str = Field(
         ...,
         description="S3 object key (path) of the query image",
-        min_length=1,
-        max_length=1024
+        min_length=1, max_length=1024
     )
     collection_id: str = Field(
         ...,
         description="Collection to search in",
-        min_length=1,
-        max_length=100,
-        pattern="^[a-zA-Z0-9_-]+$"
+        min_length=1, max_length=100, pattern="^[a-zA-Z0-9_-]+$"
     )
+    # Default threshold set to 0.8 based on README example and common practice
     threshold: float = Field(
-        0.5,
+        0.8,
         description="Minimum similarity score for matches (0.0 to 1.0)",
-        ge=0.0,
-        le=1.0
+        ge=MIN_THRESHOLD, le=MAX_THRESHOLD
     )
 
 
+# Define the FaceMatch model specifically for the API response
 class FaceMatch(BaseModel):
-    """API model for a face match."""
+    """API model representing a single face match in the response."""
     face_id: str = Field(...,
                          description="Unique identifier for the matched face")
     similarity: float = Field(...,
-                              description="Similarity score (0.0 to 1.0)", ge=0.0, le=1.0)
-    key: str = Field(...,
-                     description="S3 object key (path) of the source image")
+                              description="Similarity score (0.0 to 1.0)",
+                              ge=MIN_THRESHOLD, le=MAX_THRESHOLD)
+    image_key: str = Field(...,
+                         description="S3 object key (path) of the source image")
 
 
 class FaceMatchingResponse(BaseModel):
-    """Response model for face matches."""
+    """Response model for the /match endpoint."""
     searched_face_id: str = Field(...,
-                                  description="Unique identifier for the searched face")
+                                  description="Unique identifier for the face used in the search")
     face_matches: List[FaceMatch] = Field(...,
-                                          description="List of matching faces")
+                                          description="List of matching faces found")
 
     @classmethod
     def from_service_response(cls, service_response: ServiceSearchResult) -> "FaceMatchingResponse":
-        """Convert service response to API response.
-
-        Args:
-            service_response: Service layer response
-
-        Returns:
-            API layer response
-        """
-        face_matches = [
-            FaceMatch(
-                face_id=match.face_id,
-                similarity=match.similarity,
-                key=match.key
+        """Convert the service layer response (ServiceSearchResult) to the API response model."""
+        api_face_matches = []
+        # Loop through domain objects and convert to API objects.
+        for domain_match in service_response.face_matches:
+            api_match = FaceMatch(
+                face_id=domain_match.face_id,
+                similarity=domain_match.similarity,
+                image_key=domain_match.image_key
             )
-            for match in service_response.face_matches
-        ]
+            api_face_matches.append(api_match)
 
         return cls(
             searched_face_id=service_response.searched_face_id,
-            face_matches=face_matches
+            face_matches=api_face_matches
         )

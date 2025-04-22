@@ -89,9 +89,9 @@ class FaceIndexingService:
             StorageError: If the image cannot be retrieved from S3
         """
         try:
-            # Check if image was already processed
+            # Check if image was already processed using the correct argument name
             existing_faces, detection_id = await self._vector_store.get_faces_by_image_id(
-                image_id=key,  # Using key as the image_id
+                image_key=key,  # Use image_key instead of image_id
                 collection_id=collection_id
             )
 
@@ -223,13 +223,11 @@ class FaceIndexingService:
                 height=face.bbox_height
             )
             
-            # Normalize confidence from 0-100 scale to 0-1 scale
-            normalized_confidence = face.confidence / 100.0 if face.confidence > 1.0 else face.confidence
-            
+            # Confidence is assumed to be already in 0-1 scale from vector store
             face_records.append(ServiceFaceRecord(
                 face_id=face.face_id,
                 bounding_box=bounding_box,
-                confidence=normalized_confidence,
+                confidence=face.confidence, # Directly use the confidence value
                 image_key=key
             ))
 
@@ -269,7 +267,7 @@ class FaceIndexingService:
             await self._vector_store.store_face(
                 face=face,
                 collection_id=collection_id,
-                image_id=key,
+                image_key=key,
                 face_detection_id=face_id,
                 detection_id=detection_id
             )
