@@ -1,10 +1,10 @@
 """Face matching service for finding similar faces in a collection."""
 from typing import Optional
 
-from app.core.exceptions import NoFaceDetectedError
+from app.domain.interfaces.storage.vector_store import VectorStore
+from app.core.exceptions import NoFaceDetectedError, StorageError, VectorStoreError, InvalidImageError
 from app.core.logging import get_logger
 from app.domain.value_objects.recognition import SearchResult
-from app.infrastructure.vectordb import PineconeVectorStore
 from app.services.aws.s3 import S3Service
 from app.services.recognition.insight_face import InsightFaceRecognitionService
 
@@ -38,7 +38,7 @@ class FaceMatchingService:
     def __init__(
         self, 
         face_service: InsightFaceRecognitionService, 
-        vector_store: PineconeVectorStore,
+        vector_store: VectorStore,
         s3_service: S3Service
     ) -> None:
         """Initialize the face matching service.
@@ -57,7 +57,7 @@ class FaceMatchingService:
         bucket: str,
         key: str,
         collection_id: str, 
-        threshold: float = 0.5
+        threshold: float = 0.8
     ) -> SearchResult:
         """Find similar faces in a collection based on a query image in S3.
 
@@ -82,41 +82,33 @@ class FaceMatchingService:
             NoFaceDetectedError: If no face is detected in the query image
             VectorStoreError: If the vector store search fails
             StorageError: If the image cannot be retrieved from S3
+            InvalidImageError: If the query image format is invalid
         """
-        try:
-            # Retrieve image from S3
-            image_bytes = await self.s3_service.get_file(bucket, key)
-            
-            faces = await self.face_service.get_faces_with_embeddings(image_bytes, max_faces=1)
-            if not faces:
-                logger.warning("No faces detected in query image")
-                return SearchResult(searched_face_id="", face_matches=[])
+        image_bytes = await self.s3_service.get_file(bucket, key)
+        
+        faces = await self.face_service.get_faces_with_embeddings(image_bytes, max_faces=1)
+        if not faces:
+            logger.warning("No faces detected in query image (unexpected path)")
+            raise NoFaceDetectedError("No faces detected in the query image.")
                 
-            # Get the first face from the list of faces (should only be one)
-            query_face = faces[0]
-            logger.info(
-                "Found query face, searching collection",
-                collection_id=collection_id,
-                threshold=threshold
-            )
+        query_face = faces[0]
+        logger.info(
+            "Found query face, searching collection",
+            collection_id=collection_id,
+            threshold=threshold
+        )
 
-            # Query the vector store for similar faces
-            search_result = await self.vector_store.search_faces(query_face, collection_id, threshold)
-            logger.info(
-                "Found matches in collection",
-                collection_id=collection_id,
-                matches_count=len(search_result.face_matches)
-            )
+        search_result = await self.vector_store.search_faces(
+            query_face=query_face, 
+            collection_id=collection_id, 
+            similarity_threshold=threshold * 100,
+            max_matches=100
+        )
+        logger.info(
+            "Search completed",
+            collection_id=collection_id,
+            matches_count=len(search_result.face_matches),
+            threshold=threshold
+        )
 
-            return search_result
-
-        except NoFaceDetectedError:
-            logger.error("No face detected in the query image")
-            return SearchResult(searched_face_id="", face_matches=[])
-        except Exception as e:
-            logger.error(
-                "Face matching failed",
-                error=str(e),
-                exc_info=True
-            )
-            return SearchResult(searched_face_id="", face_matches=[])
+        return search_result
