@@ -1,6 +1,11 @@
 """Service container for dependency injection."""
 from typing import Optional
 
+# Import interfaces
+from app.domain.interfaces.storage.vector_store import VectorStore
+from app.domain.interfaces.recognition.face_recognition import FaceRecognitionService
+
+# Import concrete implementations used for instantiation
 from app.infrastructure.vectordb import PineconeVectorStore
 from app.services.aws.s3 import S3Service
 from app.services.aws.sqs import SQSService
@@ -28,38 +33,29 @@ class ServiceContainer:
 
     def __init__(self) -> None:
         """Initialize empty container."""
-        # Core services
-        self.vector_store: Optional[PineconeVectorStore] = None
-        self.face_recognition_service: Optional[InsightFaceRecognitionService] = None
+        # Core services - Use interface type hints
+        self.vector_store: Optional[VectorStore] = None
+        self.face_recognition_service: Optional[FaceRecognitionService] = None
         self.s3_service: Optional[S3Service] = None
         self.sqs_service: Optional[SQSService] = None
 
-        # Domain services
+        # Domain services (depend on interfaces)
         self.face_indexing_service: Optional[FaceIndexingService] = None
         self.face_matching_service: Optional[FaceMatchingService] = None
 
     async def initialize(self) -> None:
         """Initialize all services in the correct order."""
-        # Initialize infrastructure services first
+        # Instantiate concrete implementations
         self.vector_store = PineconeVectorStore()
-
-        # Initialize AWS services
         self.s3_service = S3Service()
-        await self.s3_service.initialize()
-
         self.sqs_service = SQSService()
         await self.sqs_service.initialize()
-
-        # Initialize core services
         self.face_recognition_service = InsightFaceRecognitionService()
-
-        # Initialize domain services with their dependencies
         self.face_indexing_service = FaceIndexingService(
             recognition_service=self.face_recognition_service,
             vector_store=self.vector_store,
             s3_service=self.s3_service
         )
-
         self.face_matching_service = FaceMatchingService(
             face_service=self.face_recognition_service,
             vector_store=self.vector_store,

@@ -217,6 +217,7 @@ async def match_faces(
             key=request.key,
             collection_id=request.collection_id,
             threshold=request.threshold,
+            max_matches=request.max_matches
         )
         return FaceMatchingResponse.from_service_response(result)
 

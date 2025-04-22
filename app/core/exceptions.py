@@ -57,6 +57,6 @@ class CollectionNotFoundError(VectorStoreError):
     pass
 
 
-class ServiceNotInitializedError(Exception):
+class ServiceNotInitializedError(FaceRecognitionError):
     """Raised when a service is used before being properly initialized."""
     pass 

@@ -66,9 +66,6 @@ class Settings(BaseSettings):
     # SQS Settings
     SQS_QUEUE_NAME: str = "facerec-indexing-dev-queue"
 
-    # Face matching settings
-    SIMILARITY_THRESHOLD: float = 80.0
-
     # Optional settings with defaults
     LOG_LEVEL: str = "INFO"
     DEBUG: bool = False

@@ -1,19 +1,21 @@
 """
-S3 service for object storage operations.
+S3 service for object storage operations using aioboto3.
 """
-import logging
-from typing import Any, BinaryIO, Dict, List, Optional
+from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, BinaryIO, Dict, List, Optional
 
-import boto3
+import aioboto3
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from app.core.config import settings
 from app.core.exceptions import StorageError
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class S3Service:
-    """Service for interacting with AWS S3 for image storage."""
+    """Service for interacting with AWS S3 using aioboto3."""
 
     def __init__(
         self,
@@ -22,63 +24,63 @@ class S3Service:
         access_key_id: Optional[str] = None,
         secret_access_key: Optional[str] = None
     ):
-        """
-        Initialize the S3 service with AWS credentials.
-
-        Args:
-            bucket_name: S3 bucket name (defaults to settings)
-            region_name: AWS region name (defaults to settings)
-            access_key_id: AWS access key ID (defaults to settings)
-            secret_access_key: AWS secret access key (defaults to settings)
-        """
+        """Store configuration but do not initialize client yet."""
         self.bucket_name = bucket_name or settings.AWS_S3_BUCKET
-        # Always use AWS_REGION for consistency
         self.region_name = region_name or settings.AWS_REGION
         self.access_key_id = access_key_id or settings.AWS_ACCESS_KEY_ID
         self.secret_access_key = secret_access_key or settings.AWS_SECRET_ACCESS_KEY
-        self.s3 = None
-        self.initialized = False
+        # Client will be initialized asynchronously
+        self._s3_client = None
+        self._session = aioboto3.Session()
 
-    async def initialize(self) -> None:
-        """Initialize the S3 client."""
-        if self.initialized:
-            return
+    @asynccontextmanager
+    async def _get_client(self) -> AsyncGenerator[Any, None]:
+        """Async context manager to get or initialize the S3 client."""
+        if self._s3_client is None:
+            logger.debug("Initializing aioboto3 S3 client")
+            client_args = {
+                'region_name': self.region_name or "us-east-1"
+            }
+            if self.access_key_id and self.secret_access_key:
+                logger.debug(
+                    "Using explicit AWS credentials from config for aioboto3")
+                client_args['aws_access_key_id'] = self.access_key_id
+                client_args['aws_secret_access_key'] = self.secret_access_key
+            else:
+                logger.debug(
+                    "Allowing aioboto3 to discover AWS credentials automatically")
 
-        try:
-            logger.info(
-                f"Initializing S3 service for bucket: {self.bucket_name}")
+            # Create client within context manager for proper cleanup
+            try:
+                async with self._session.client("s3", **client_args) as s3:
+                    # Quick check to ensure connection is valid (optional but good)
+                    # await s3.head_bucket(Bucket=self.bucket_name)
+                    # logger.info(f"Successfully connected to S3 bucket: {self.bucket_name}")
+                    self._s3_client = s3
+                    yield s3  # Yield the initialized client
+            except NoCredentialsError as e:
+                logger.error(
+                    f"Failed to initialize S3: AWS credentials not found. {e}")
+                raise StorageError(
+                    f"AWS credentials not found or configured correctly.")
+            except ClientError as e:
+                # Simplified error handling for init within context manager
+                logger.error(f"Failed to initialize S3 client: {e}")
+                raise StorageError(f"Failed to initialize S3 client: {e}")
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error initializing S3 client: {e}", exc_info=True)
+                raise StorageError(f"Unexpected error initializing S3: {e}")
+        else:
+            # Client already initialized, yield it
+            yield self._s3_client
 
-            # Default to us-east-1 if region is empty
-            if not self.region_name:
-                self.region_name = "us-east-1"
-                logger.info("Using default region us-east-1")
-
-            self.s3 = boto3.client(
-                's3',
-                region_name=self.region_name,
-                aws_access_key_id=self.access_key_id,
-                aws_secret_access_key=self.secret_access_key
-            )
-
-            # Verify bucket exists
-            self.s3.head_bucket(Bucket=self.bucket_name)
-
-            logger.info(
-                f"Successfully initialized S3 service for bucket: {self.bucket_name}")
-            self.initialized = True
-        except Exception as e:
-            logger.error(f"Failed to initialize S3 service: {str(e)}")
-            raise
-
-    async def cleanup(self) -> None:
-        """Clean up resources."""
-        logger.info("Cleaning up S3 service resources")
-        # The boto3 client doesn't need explicit cleanup
-        self.initialized = False
+    # Removed initialize and cleanup - handled by context manager
+    # Removed _ensure_initialized - replaced by _get_client context manager
 
     async def upload_file(self, file_obj: BinaryIO, key: str) -> str:
         """
-        Upload a file to S3.
+        Upload a file to S3 asynchronously.
 
         Args:
             file_obj: File-like object to upload
@@ -87,21 +89,27 @@ class S3Service:
         Returns:
             The S3 object URL
         """
-        if not self.initialized:
-            await self.initialize()
-
         try:
-            self.s3.upload_fileobj(file_obj, self.bucket_name, key)
+            async with self._get_client() as s3:
+                await s3.upload_fileobj(file_obj, self.bucket_name, key)
             url = f"https://{self.bucket_name}.s3.{self.region_name}.amazonaws.com/{key}"
-            logger.info(f"Successfully uploaded file to S3: {key}")
+            logger.info("Successfully uploaded file to S3",
+                        key=key, bucket=self.bucket_name)
             return url
+        except ClientError as e:
+            logger.error("Failed to upload file to S3 due to client error",
+                         key=key, error=e, exc_info=True)
+            raise StorageError(
+                f"Failed to upload file '{key}' to S3: {e}") from e
         except Exception as e:
-            logger.error(f"Failed to upload file to S3: {str(e)}")
-            raise
+            logger.error("Unexpected error uploading file to S3",
+                         key=key, error=e, exc_info=True)
+            raise StorageError(
+                f"Unexpected error uploading file '{key}': {e}") from e
 
     async def get_file_url(self, key: str, expiration: int = 3600) -> str:
         """
-        Generate a presigned URL for accessing a file.
+        Generate a presigned URL asynchronously.
 
         Args:
             key: S3 object key
@@ -110,23 +118,30 @@ class S3Service:
         Returns:
             Presigned URL for the object
         """
-        if not self.initialized:
-            await self.initialize()
-
         try:
-            url = self.s3.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': key},
-                ExpiresIn=expiration
-            )
+            async with self._get_client() as s3:
+                url = await s3.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': self.bucket_name, 'Key': key},
+                    ExpiresIn=expiration
+                )
+            logger.debug("Generated presigned URL",
+                         key=key, bucket=self.bucket_name)
             return url
+        except ClientError as e:
+            logger.error("Failed to generate presigned URL due to client error",
+                         key=key, error=e, exc_info=True)
+            raise StorageError(
+                f"Failed to generate presigned URL for '{key}': {e}") from e
         except Exception as e:
-            logger.error(f"Failed to generate presigned URL: {str(e)}")
-            raise
+            logger.error("Unexpected error generating presigned URL",
+                         key=key, error=e, exc_info=True)
+            raise StorageError(
+                f"Unexpected error generating presigned URL for '{key}': {e}") from e
 
     async def list_objects(self, prefix: str = '', max_keys: int = 1000) -> List[Dict[str, Any]]:
         """
-        List objects in the S3 bucket with a given prefix.
+        List objects asynchronously using paginator.
 
         Args:
             prefix: Key prefix to filter objects
@@ -135,34 +150,45 @@ class S3Service:
         Returns:
             List of object metadata
         """
-        if not self.initialized:
-            await self.initialize()
-
+        objects = []
         try:
-            response = self.s3.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix,
-                MaxKeys=max_keys
-            )
+            async with self._get_client() as s3:
+                paginator = s3.get_paginator('list_objects_v2')
+                # Use async for with the paginator
+                async for page in paginator.paginate(
+                    Bucket=self.bucket_name,
+                    Prefix=prefix,
+                    PaginationConfig={'MaxItems': max_keys}
+                ):
+                    if 'Contents' in page:
+                        for obj in page['Contents']:
+                            objects.append({
+                                'key': obj['Key'],
+                                'size': obj['Size'],
+                                'last_modified': obj['LastModified'],
+                                'etag': obj['ETag']
+                            })
+                            if len(objects) >= max_keys:
+                                break
+                    if len(objects) >= max_keys:
+                        break
 
-            objects = []
-            if 'Contents' in response:
-                for obj in response['Contents']:
-                    objects.append({
-                        'key': obj['Key'],
-                        'size': obj['Size'],
-                        'last_modified': obj['LastModified'],
-                        'etag': obj['ETag']
-                    })
-
+            logger.debug("Listed objects", prefix=prefix, count=len(objects))
             return objects
+        except ClientError as e:
+            logger.error("Failed to list objects in S3 due to client error",
+                         prefix=prefix, error=e, exc_info=True)
+            raise StorageError(
+                f"Failed to list objects with prefix '{prefix}': {e}") from e
         except Exception as e:
-            logger.error(f"Failed to list objects in S3: {str(e)}")
-            raise
+            logger.error("Unexpected error listing objects in S3",
+                         prefix=prefix, error=e, exc_info=True)
+            raise StorageError(
+                f"Unexpected error listing objects with prefix '{prefix}': {e}") from e
 
     async def list_albums(self, max_keys: int = 1000) -> List[str]:
         """
-        List album folders in the bucket.
+        List albums asynchronously using paginator.
 
         This is a helper method to identify album-like prefixes by finding common prefixes.
 
@@ -172,31 +198,37 @@ class S3Service:
         Returns:
             List of album folder prefixes
         """
-        if not self.initialized:
-            await self.initialize()
-
+        albums = []
         try:
-            response = self.s3.list_objects_v2(
-                Bucket=self.bucket_name,
-                Delimiter='/',
-                MaxKeys=max_keys
-            )
-
-            albums = []
-            if 'CommonPrefixes' in response:
-                for prefix in response['CommonPrefixes']:
-                    # Remove trailing slash
-                    album = prefix['Prefix'].rstrip('/')
-                    albums.append(album)
-
+            async with self._get_client() as s3:
+                paginator = s3.get_paginator('list_objects_v2')
+                async for page in paginator.paginate(
+                    Bucket=self.bucket_name,
+                    Delimiter='/',
+                    PaginationConfig={'MaxItems': max_keys}
+                ):
+                    if 'CommonPrefixes' in page:
+                        for prefix_data in page['CommonPrefixes']:
+                            album = prefix_data['Prefix'].rstrip('/')
+                            albums.append(album)
+                            if len(albums) >= max_keys:
+                                break
+                    if len(albums) >= max_keys:
+                        break
+            logger.debug("Listed albums", count=len(albums))
             return albums
+        except ClientError as e:
+            logger.error(
+                "Failed to list albums in S3 due to client error", error=e, exc_info=True)
+            raise StorageError(f"Failed to list albums: {e}") from e
         except Exception as e:
-            logger.error(f"Failed to list albums in S3: {str(e)}")
-            raise
+            logger.error("Unexpected error listing albums in S3",
+                         error=e, exc_info=True)
+            raise StorageError(f"Unexpected error listing albums: {e}") from e
 
     async def get_file(self, bucket: str, key: str) -> bytes:
         """
-        Get file contents from S3.
+        Get file contents from S3 asynchronously.
 
         Args:
             bucket: S3 bucket name
@@ -206,14 +238,40 @@ class S3Service:
             File contents as bytes
 
         Raises:
-            StorageError: If file cannot be retrieved
+            StorageError: If file cannot be retrieved (e.g., not found, access denied)
         """
-        if not self.initialized:
-            await self.initialize()
+        target_bucket = bucket if bucket else self.bucket_name
+        if target_bucket != self.bucket_name:
+            logger.warning(
+                f"Accessing S3 bucket '{target_bucket}' different from initialized bucket '{self.bucket_name}'")
 
         try:
-            response = self.s3.get_object(Bucket=bucket, Key=key)
-            return response['Body'].read()
+            async with self._get_client() as s3:
+                response = await s3.get_object(Bucket=target_bucket, Key=key)
+                # Read from the async body stream
+                body = response['Body']
+                content = await body.read()
+                return content
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code')
+            if error_code == 'NoSuchKey':
+                logger.warning(f"File not found in S3: {target_bucket}/{key}")
+                raise StorageError(f"File not found: {key}") from e
+            elif error_code == 'NoSuchBucket':
+                logger.error(
+                    f"Attempted to get file from non-existent bucket: {target_bucket}")
+                raise StorageError(f"Bucket not found: {target_bucket}") from e
+            elif error_code == '403' or "Forbidden" in str(e) or "Access Denied" in str(e):
+                logger.error(
+                    f"Access denied when getting file: {target_bucket}/{key}. Check permissions. {e}")
+                raise StorageError(f"Access denied for file: {key}") from e
+            else:
+                logger.error(
+                    f"Failed to get file from S3 due to client error: {e}", exc_info=True)
+                raise StorageError(
+                    f"Failed to retrieve file '{key}' due to S3 error: {e}") from e
         except Exception as e:
-            logger.error(f"Failed to get file from S3: {str(e)}")
-            raise StorageError(f"Failed to retrieve file from storage") from e
+            logger.error(
+                f"Unexpected error getting file from S3: {target_bucket}/{key} - {e}", exc_info=True)
+            raise StorageError(
+                f"Unexpected error retrieving file: {key}") from e

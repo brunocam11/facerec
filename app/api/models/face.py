@@ -7,6 +7,7 @@ from app.domain.entities.face import BoundingBox, Face
 # Import the domain FaceMatch model (used implicitly in from_service_response)
 from app.domain.value_objects.recognition import FaceMatch as DomainFaceMatch # Keep alias for clarity
 from app.services.models import ServiceIndexFacesResponse, ServiceSearchResult
+from app.core.config import settings # Import settings
 
 # Constants for validation ranges used in API models
 MIN_THRESHOLD = 0.0
@@ -106,11 +107,16 @@ class FaceMatchingRequest(BaseModel):
         description="Collection to search in",
         min_length=1, max_length=100, pattern="^[a-zA-Z0-9_-]+$"
     )
-    # Default threshold set to 0.8 based on README example and common practice
     threshold: float = Field(
         0.8,
         description="Minimum similarity score for matches (0.0 to 1.0)",
         ge=MIN_THRESHOLD, le=MAX_THRESHOLD
+    )
+    max_matches: Optional[int] = Field(
+        default=10,
+        ge=1,
+        le=settings.MAX_MATCHES,
+        description=f"Maximum number of matches to return (1-{settings.MAX_MATCHES})"
     )
 
 
