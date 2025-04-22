@@ -1,4 +1,5 @@
 # Face Recognition Service
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A production-ready, distributed face recognition service built on AWS, with separate API and worker components. This service is optimized for AWS infrastructure but designed with extensibility in mind.
 
@@ -12,6 +13,12 @@ This service is currently optimized for AWS infrastructure. While the core face 
 - Robust security features through IAM
 - Seamless integration with S3 and SQS
 - Production-ready deployment patterns
+
+### Why Use This Service?
+
+*   **Cost-Effective:** Designed as a potential alternative to more expensive managed services like AWS Rekognition, especially for high-volume processing, leveraging spot instances and optimized components.
+*   **Control & Extensibility:** Provides more control over the underlying models and infrastructure compared to managed services. The modular design allows for easier customization and extension.
+*   **Cloud Agnostic Core (Potential):** While currently deployed on AWS, the core application logic aims for cloud neutrality, welcoming contributions for other platforms.
 
 ## Project Structure
 
@@ -40,18 +47,24 @@ facerec/
    ```bash
    cp .env.example .env
    # Edit .env with your AWS settings
+   # IMPORTANT: Ensure your .env file is NOT committed to version control. It's already in .gitignore.
    ```
 
-2. Start services locally:
+2. Install dependencies using Poetry:
    ```bash
-   # Start API
-   ./scripts/dev/start-api.sh
+   poetry install
+   ```
+
+3. Start services locally:
+   ```bash
+   # Start API (runs on http://localhost:8000 by default)
+   poetry run ./scripts/dev/start-api.sh
    
    # Start Worker (in another terminal)
-   ./scripts/dev/start-worker.sh
+   poetry run ./scripts/dev/start-worker.sh
    ```
 
-3. Deploy to AWS:
+4. Deploy to AWS:
    ```bash
    # Deploy API
    ./scripts/deploy/deploy-api.sh
@@ -88,6 +101,42 @@ SQS_QUEUE_NAME=your_queue
 SQS_BATCH_SIZE=10
 ```
 
+## API Usage Examples
+
+Once the API service is running (e.g., locally on `http://localhost:8000`), you can interact with it. Here are examples using `curl`:
+
+### Index Faces
+
+Sends a request to index faces found in an image stored in your S3 bucket.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/face-recognition/index" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "bucket": "your-s3-bucket-name",
+           "key": "path/to/your/image.jpg",
+           "collection_id": "your_collection_id",
+           "max_faces": 5
+         }'
+```
+
+### Match Faces
+
+Sends a request to find faces in a collection that are similar to faces in a query image (also stored in S3).
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/face-recognition/match" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "bucket": "your-s3-bucket-name",
+           "key": "path/to/query/image.jpg",
+           "collection_id": "your_collection_id",
+           "threshold": 0.8
+         }'
+```
+
+*(Note: Replace placeholder values like `your-s3-bucket-name`, `path/to/your/image.jpg`, and `your_collection_id` with actual values.)*
+
 ## Architecture
 
 ### AWS Infrastructure
@@ -113,9 +162,13 @@ SQS_BATCH_SIZE=10
 
 ## Development
 
+This project uses [Poetry](https://python-poetry.org/) for dependency management.
+
 1. Make changes to the code
-2. Test locally using development scripts
-3. Deploy to AWS using deployment scripts
+2. Run linters/formatters (e.g., `poetry run black .`, `poetry run ruff .`, `poetry run mypy .`).
+3. Run tests (see the `tests/` directory) using `poetry run pytest`.
+4. Test locally using development scripts (`poetry run ./scripts/dev/...`).
+5. Deploy to AWS using deployment scripts
 
 ## Troubleshooting
 
@@ -137,9 +190,15 @@ SQS_BATCH_SIZE=10
 
 ## Contributing
 
-We welcome contributions! Some areas where contributions are particularly welcome:
+We welcome contributions! Please see the `CONTRIBUTING.md` file for guidelines. Some areas where contributions are particularly welcome:
 
 - Support for other cloud providers
 - Additional face recognition models
 - Performance optimizations
 - Documentation improvements
+
+## Important Considerations
+
+*   **External Service Costs & Limits:** The overall cost-effectiveness and performance rely heavily on AWS services (S3, SQS, EC2 Spot Instances) and Pinecone. Users should carefully review the pricing models, free tier limitations, and potential costs associated with these external services based on their expected usage.
+*   **Assumptions:** Performance benchmarks and cost savings compared to alternatives depend on specific workloads and configurations. Verify these assumptions for your use case.
+*   **Security:** Ensure proper IAM roles, security groups, and credential management practices are followed, especially regarding AWS keys and Pinecone API keys stored in the environment.
