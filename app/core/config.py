@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_REGION: str = "us-east-1"
     
     # SQS Settings
-    SQS_QUEUE_NAME: str = "facerec-indexing-staging-queue"
+    SQS_QUEUE_NAME: str = "facerec-indexing-dev-queue"
 
     # Face matching settings
     SIMILARITY_THRESHOLD: float = 80.0

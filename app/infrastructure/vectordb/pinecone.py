@@ -190,25 +190,24 @@ class PineconeVectorStore(VectorStore):
             )
             raise VectorStoreError(f"Failed to store face embedding: {str(e)}")
 
-    async def get_faces_by_image_id(
+    async def get_faces_by_image_key(
         self,
         image_key: str,
         collection_id: str,
-    ) -> tuple[List[VectorFaceRecord], Optional[str]]:
-        """Retrieve face records for a given image key from a collection namespace.
+    ) -> tuple[List[Face], Optional[str]]:
+        """Retrieve face entities for a given image key from a collection namespace.
         
         Args:
             image_key: S3 object key of the original image
             collection_id: Collection namespace in Pinecone
             
         Returns:
-            Tuple of (list of face records, detection_id)
+            Tuple of (list of Face entities, detection_id)
             
         Raises:
             VectorStoreError: If retrieval operation fails
         """
         try:
-            # Query Pinecone using image_key
             response = self.index.query(
                 vector=[0] * 512,
                 filter={
@@ -222,77 +221,92 @@ class PineconeVectorStore(VectorStore):
 
             if not response or not response.matches:
                 logger.debug(
-                    "No faces found for image",
+                    "No faces found for image key",
                     image_key=image_key,
                     collection_id=collection_id
                 )
                 return [], None
 
-            # Get detection_id from first match
             detection_id = None
             for match in response.matches:
-                if match.metadata:
+                if match.metadata and match.metadata.get("detection_id"):
                     detection_id = match.metadata.get("detection_id")
-                    if detection_id:
-                        break
-
+                    break
+            
             if not detection_id:
                 logger.warning(
-                    "No detection_id found in metadata",
+                    "No detection_id found in metadata for any match",
                     image_key=image_key,
                     collection_id=collection_id
                 )
                 return [], None
 
-            # Convert Pinecone records to vector records
-            records = []
+            faces = []
             for match in response.matches:
                 if not match.metadata or not match.values:
                     logger.warning(
-                        "Missing metadata or vector values for face record",
+                        "Missing metadata or vector values for stored face record",
                         face_id=match.id,
+                        image_key=image_key,
                         collection_id=collection_id
                     )
                     continue
-
+                
                 try:
-                    # Parse timestamps from ISO format
-                    created_at = datetime.fromisoformat(match.metadata.get("created_at", datetime.now().isoformat()))
+                    bbox = BoundingBox(
+                        left=float(match.metadata.get("bbox_left", 0)),
+                        top=float(match.metadata.get("bbox_top", 0)),
+                        width=float(match.metadata.get("bbox_width", 0)),
+                        height=float(match.metadata.get("bbox_height", 0))
+                    )
+                    embedding_list = match.values
+                    embedding = np.array(embedding_list) if embedding_list else None
 
-                    records.append(VectorFaceRecord(
-                        face_id=match.id,
-                        collection_id=collection_id,
-                        external_image_id=image_key,
-                        detection_id=match.metadata.get("detection_id"),
-                        confidence=float(match.metadata.get("confidence", 0)),
-                        embedding=np.array(match.values),
-                        bbox_left=float(match.metadata.get("bbox_left", 0)),
-                        bbox_top=float(match.metadata.get("bbox_top", 0)),
-                        bbox_width=float(match.metadata.get("bbox_width", 0)),
-                        bbox_height=float(match.metadata.get("bbox_height", 0)),
-                        created_at=created_at
-                    ))
+                    # Parse created_at timestamp
+                    created_at_str = match.metadata.get("created_at")
+                    created_at_dt = None
+                    if created_at_str:
+                        try:
+                            created_at_dt = datetime.fromisoformat(created_at_str)
+                        except ValueError:
+                            logger.warning("Failed to parse created_at timestamp from metadata", 
+                                             timestamp_str=created_at_str, face_id=match.id)
+                    
+                    # Use Pinecone match ID as the face_id for the domain entity
+                    face_id = match.id 
+
+                    face_entity = Face(
+                        face_id=face_id, # Populate face_id
+                        confidence=float(match.metadata.get("confidence", 0.0)),
+                        bounding_box=bbox,
+                        embedding=embedding,
+                        created_at=created_at_dt # Populate created_at
+                    )
+                    faces.append(face_entity)
                 except Exception as e:
                     logger.error(
-                        "Failed to parse face record",
+                        "Failed to parse stored face record into Face entity",
                         error=str(e),
                         face_id=match.id,
+                        image_key=image_key,
                         collection_id=collection_id,
                         exc_info=True
                     )
                     continue
 
-            return records, detection_id
+            retrieved_detection_id = detection_id
+
+            return faces, retrieved_detection_id
 
         except Exception as e:
             logger.error(
-                "Failed to retrieve faces by image ID",
+                "Failed to retrieve faces by image key",
                 error=str(e),
                 image_key=image_key,
                 collection_id=collection_id,
                 exc_info=True
             )
-            raise VectorStoreError(f"Failed to retrieve faces by image ID: {str(e)}")
+            raise VectorStoreError(f"Failed to retrieve faces by image key: {str(e)}")
 
     async def search_faces(
         self,

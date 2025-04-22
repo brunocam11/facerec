@@ -98,6 +98,6 @@ async def get_face_matching_service(
     service = FaceMatchingService(
         face_service=face_service,
         vector_store=vector_store,
-        storage=storage,
+        s3_service=storage,
     )
     yield service

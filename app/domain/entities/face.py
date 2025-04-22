@@ -1,5 +1,6 @@
 """Core face domain entities."""
 from typing import Optional, Union
+from datetime import datetime
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -18,6 +19,8 @@ class Face(BaseModel):
     confidence: float = Field(..., description="Confidence score of the detection")
     bounding_box: BoundingBox = Field(..., description="Bounding box coordinates")
     embedding: Optional[np.ndarray] = Field(None, description="Face embedding vector")
+    created_at: Optional[datetime] = Field(None, description="Timestamp when the face was processed/stored")
+    face_id: Optional[str] = Field(None, description="Unique identifier assigned during storage/retrieval")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

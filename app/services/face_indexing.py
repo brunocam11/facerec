@@ -9,11 +9,8 @@ from app.core.exceptions import (
     VectorStoreError,
 )
 from app.core.logging import get_logger
-from app.domain.entities import BoundingBox
 from app.domain.entities.face import Face
 from app.domain.interfaces.storage.vector_store import VectorStore
-from app.domain.value_objects.recognition import DetectionResult
-from app.infrastructure.vectordb.models import VectorFaceRecord
 from app.services import InsightFaceRecognitionService
 from app.services.aws.s3 import S3Service
 from app.services.models import ServiceFaceRecord, ServiceIndexFacesResponse
@@ -89,12 +86,13 @@ class FaceIndexingService:
             StorageError: If the image cannot be retrieved from S3
         """
         try:
-            # Check if image was already processed using the correct argument name
-            existing_faces, detection_id = await self._vector_store.get_faces_by_image_id(
-                image_key=key,  # Use image_key instead of image_id
+            # Use the updated interface method name
+            existing_faces, detection_id = await self._vector_store.get_faces_by_image_key(
+                image_key=key,
                 collection_id=collection_id
             )
 
+            # existing_faces is now List[Face]
             if existing_faces:
                 logger.info(
                     "Image already indexed, returning existing records",
@@ -103,6 +101,7 @@ class FaceIndexingService:
                     faces_count=len(existing_faces),
                     detection_id=detection_id
                 )
+                # Pass List[Face] to the updated helper
                 return self._convert_existing_faces_to_response(
                     existing_faces, key, detection_id
                 )
@@ -199,37 +198,33 @@ class FaceIndexingService:
 
     def _convert_existing_faces_to_response(
         self,
-        existing_faces: List[VectorFaceRecord],
+        existing_faces: List[Face],
         key: str,
         detection_id: str
     ) -> ServiceIndexFacesResponse:
-        """Convert existing vector records to API response format.
+        """Convert existing Face entities to the service response format.
 
         Args:
-            existing_faces: List of existing face records from vector store
-            key: S3 object key (path) of the source image
-            detection_id: Original detection operation ID
+            existing_faces: List of domain Face entities retrieved from storage.
+            key: S3 object key (path) of the source image.
+            detection_id: Original detection operation ID associated with these faces.
 
         Returns:
-            ServiceIndexFacesResponse with converted face records
+            ServiceIndexFacesResponse containing the converted face records.
         """
         face_records = []
         for face in existing_faces:
-            # Create bounding box from individual components
-            bounding_box = BoundingBox(
-                left=face.bbox_left,
-                top=face.bbox_top,
-                width=face.bbox_width,
-                height=face.bbox_height
-            )
-            
-            # Confidence is assumed to be already in 0-1 scale from vector store
-            face_records.append(ServiceFaceRecord(
-                face_id=face.face_id,
-                bounding_box=bounding_box,
-                confidence=face.confidence, # Directly use the confidence value
-                image_key=key
-            ))
+            try:
+                record = ServiceFaceRecord.from_face(
+                    face=face,
+                    face_id=face.face_id,
+                    image_key=key
+                )
+                face_records.append(record)
+            except Exception as e:
+                logger.error("Failed to convert Face entity to ServiceFaceRecord", error=str(
+                    e), face_details=face, exc_info=True)
+                continue
 
         return ServiceIndexFacesResponse(
             face_records=face_records,
@@ -263,7 +258,6 @@ class FaceIndexingService:
             # Generate a unique ID for this specific face
             face_id = str(uuid.uuid4())
 
-            # Store in vector database with both face_id and detection_id
             await self._vector_store.store_face(
                 face=face,
                 collection_id=collection_id,
@@ -280,7 +274,6 @@ class FaceIndexingService:
                 key=key
             )
 
-            # Create API response record
             return ServiceFaceRecord.from_face(
                 face=face,
                 face_id=face_id,

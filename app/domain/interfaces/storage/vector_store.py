@@ -14,7 +14,7 @@ class VectorStore(ABC):
         self,
         face: Face,
         collection_id: str,
-        image_id: str,
+        image_key: str,
         face_detection_id: str,
         detection_id: str = None,
     ) -> None:
@@ -24,12 +24,36 @@ class VectorStore(ABC):
         Args:
             face: Face object containing embedding and metadata
             collection_id: External system collection identifier
-            image_id: External system image identifier
+            image_key: S3 object key of the original image
             face_detection_id: External system face detection identifier
             detection_id: ID grouping faces from same detection operation (optional)
         
         Raises:
             VectorStoreError: If storage operation fails
+        """
+        pass
+    
+    @abstractmethod
+    async def get_faces_by_image_key(
+        self,
+        image_key: str,
+        collection_id: str,
+    ) -> tuple[List[Face], Optional[str]]:
+        """
+        Retrieve face entities for a given image key from a collection.
+        Used for idempotency checks primarily.
+
+        Args:
+            image_key: S3 object key of the original image.
+            collection_id: External system collection identifier.
+        
+        Returns:
+            Tuple containing:
+                - List[Face]: List of domain Face entities found for the image.
+                - Optional[str]: The detection_id associated with these faces (if found).
+        
+        Raises:
+            VectorStoreError: If retrieval operation fails.
         """
         pass
     
