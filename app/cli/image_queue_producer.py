@@ -7,7 +7,6 @@ until the specified number of images have been queued.
 """
 import argparse
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -65,8 +64,6 @@ async def queue_images_from_albums(
     queued_count = 0
     start_time = time.time()
 
-    # Ensure services are initialized
-    await s3_service.initialize()
     await sqs_service.initialize()
 
     if specific_album_id:
@@ -183,14 +180,13 @@ async def queue_single_image(
         album: Album ID containing the image
         bucket_name: S3 bucket name containing the image
     """
-    image_id = os.path.basename(image_key)
-    collection_id = os.path.basename(album)
+    # Use the album prefix directly as the collection ID
+    collection_id = album 
 
     message_body = {
-        "image_id": image_id,
         "collection_id": collection_id,
         "s3_bucket": bucket_name,
-        "s3_key": image_key,
+        "image_key": image_key,
         "max_faces": settings.MAX_FACES_PER_IMAGE
     }
 
@@ -280,6 +276,7 @@ async def main():
         return 1
 
     finally:
+        # S3Service cleanup is handled internally
         await container.cleanup()
 
 

@@ -1,6 +1,7 @@
 """Pinecone implementation of vector store for face embeddings."""
 from typing import List, Optional
 from datetime import datetime
+import uuid
 
 import numpy as np
 from pinecone import Pinecone
@@ -330,11 +331,15 @@ class PineconeVectorStore(VectorStore):
             VectorStoreError: If search operation fails
         """
         try:
-            # Normalize query embedding
-            query_embedding = query_face.embedding
-            if query_embedding is None:
-                raise VectorStoreError("Query face has no embedding")
+            if query_face.embedding is None:
+                raise VectorStoreError("Query face embedding cannot be None")
 
+            # Generate a unique ID for this search operation
+            search_operation_id = str(uuid.uuid4())
+            logger.debug(f"Starting face search op {search_operation_id}")
+
+            # Normalize the query embedding for cosine similarity
+            query_embedding = query_face.embedding
             norm = np.linalg.norm(query_embedding)
             if norm > 0:
                 normalized_embedding = query_embedding / norm
@@ -416,7 +421,7 @@ class PineconeVectorStore(VectorStore):
                     continue
 
             return SearchResult(
-                searched_face_id=query_face.face_id,
+                searched_face_id=search_operation_id,
                 face_matches=face_matches
             )
 

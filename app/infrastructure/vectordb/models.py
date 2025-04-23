@@ -41,7 +41,7 @@ class VectorFaceRecord(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)  # For numpy array support
 
     @classmethod
-    def from_face(cls, face: Face, face_id: str, collection_id: str, detection_id: str, image_id: Optional[str] = None) -> "VectorFaceRecord":
+    def from_face(cls, face: Face, face_id: str, collection_id: str, detection_id: str, image_key: Optional[str] = None) -> "VectorFaceRecord":
         """Create a vector database record from a face entity.
         
         Args:
@@ -49,7 +49,7 @@ class VectorFaceRecord(BaseModel):
             face_id: Unique identifier for this specific face detection
             collection_id: Collection identifier
             detection_id: ID grouping faces from same detection operation
-            image_id: Optional original image identifier
+            image_key: Optional original image identifier
             
         Returns:
             VectorFaceRecord instance for storage in Pinecone
@@ -64,7 +64,7 @@ class VectorFaceRecord(BaseModel):
         return cls(
             face_id=face_id,
             collection_id=collection_id,
-            external_image_id=image_id,
+            external_image_id=image_key,
             detection_id=detection_id,
             confidence=face.confidence,
             embedding=face.embedding,

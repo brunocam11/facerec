@@ -173,7 +173,7 @@ async def index_image(image_key: str, image_bytes: bytes, collection_id: str, ma
     try:
         face_indexing_service = get_face_indexing_service()
         result = await face_indexing_service.index_faces(
-            image_id=image_key,
+            image_key=image_key,
             image_bytes=image_bytes,
             collection_id=collection_id,
             max_faces=max_faces
@@ -458,7 +458,7 @@ def main():
                                 
                                 try:
                                     # Get match image from S3
-                                    match_image_bytes = get_image_from_s3(s3_bucket, match.image_id)
+                                    match_image_bytes = get_image_from_s3(s3_bucket, match.image_key)
                                     
                                     # Convert to numpy array
                                     nparr = np.frombuffer(match_image_bytes, np.uint8)
@@ -469,13 +469,13 @@ def main():
                                     match_images.append((match_img_rgb, match.similarity, True))
                                     
                                     # Display match image with a more descriptive caption
-                                    image_filename = os.path.basename(match.image_id)
+                                    image_filename = os.path.basename(match.image_key)
                                     st.image(match_img_rgb, caption=f"Match {i+1}: {image_filename} ({match.similarity:.2f})", width=300)
                                 except Exception as e:
                                     st.error(f"Error loading match image: {e}")
                                     # Log more details to help debug
-                                    st.info(f"Image ID from Pinecone: {match.image_id}")
-                                    st.info(f"Attempted S3 path: s3://{s3_bucket}/{match.image_id}")
+                                    st.info(f"Image ID from Pinecone: {match.image_key}")
+                                    st.info(f"Attempted S3 path: s3://{s3_bucket}/{match.image_key}")
                             
                             # Create visualization
                             if match_images:

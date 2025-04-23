@@ -1,11 +1,12 @@
 """
 Ray task functions for face recognition processing.
 """
-import asyncio
 import gc
 import logging
 import time
 import uuid
+import asyncio
+import os
 from typing import Any, Dict
 
 import psutil
@@ -22,13 +23,13 @@ _FACE_SERVICE_CACHE = None
 
 @ray.remote
 def process_face_image(vector_store_actor, collection_id: str,
-                       image_id: str, image_bytes: bytes, max_faces: int) -> Dict[str, Any]:
+                         image_key: str, image_bytes: bytes, max_faces: int) -> Dict[str, Any]:
     """Process a single image with face recognition as a Ray task.
 
     Args:
         vector_store_actor: Ray actor for vector store operations
         collection_id: ID of the face collection
-        image_id: ID of the image being processed
+        image_key: Full S3 object key of the image being processed
         image_bytes: Raw image bytes
         max_faces: Maximum number of faces to detect
 
@@ -45,12 +46,13 @@ def process_face_image(vector_store_actor, collection_id: str,
 
         # Get task resource utilization info for logging
         process = psutil.Process()
-        cpu_num = process.cpu_num()  # Get the CPU number this task is running on
         cpu_percent = process.cpu_percent(interval=0.1)
         mem_info = process.memory_info()
 
-        logger.info(f"Task for image {image_id} running on CPU {cpu_num} "
-                    f"(utilization: {cpu_percent:.1f}%, memory: {mem_info.rss / (1024 * 1024):.1f} MB)")
+        # Use basename for logging image identifier
+        image_filename = os.path.basename(image_key)
+        logger.info(f"Task for image {image_filename} starting "
+                    f"(process CPU util: {cpu_percent:.1f}%, memory: {mem_info.rss / (1024 * 1024):.1f} MB)")
 
         # Initialize face service inside the task, using global cache if available
         global _FACE_SERVICE_CACHE
@@ -60,22 +62,21 @@ def process_face_image(vector_store_actor, collection_id: str,
             _FACE_SERVICE_CACHE = InsightFaceRecognitionService()
 
         face_service = _FACE_SERVICE_CACHE
-        logger.debug(f"Face service ready for image {image_id}")
+        logger.debug(f"Face service ready for image {image_filename}")
 
         # Helper function for running async code in the synchronous Ray task
         async def detect_faces_async():
             # Detect faces and extract embeddings
-            detection_result = await face_service.detect_faces(
+            return await face_service.detect_faces(
                 image_bytes=image_bytes,
                 max_faces=max_faces
             )
-            return detection_result
 
         # Run the async function using asyncio.run
         detection_result = asyncio.run(detect_faces_async())
 
         if not detection_result.faces:
-            logger.info(f"No faces detected in image {image_id}")
+            logger.info(f"No faces detected in image {image_filename}")
             # Run garbage collection to free memory
             gc.collect()
 
@@ -95,7 +96,7 @@ def process_face_image(vector_store_actor, collection_id: str,
         # Log detection info
         face_count = len(detection_result.faces)
         logger.info(
-            f"Detected {face_count} faces in image {image_id} using CPU {cpu_num}")
+            f"Detected {face_count} faces in image {image_filename}")
 
         # Process each detected face
         for face in detection_result.faces:
@@ -118,7 +119,7 @@ def process_face_image(vector_store_actor, collection_id: str,
             # Store the face embedding in Pinecone using the vector store actor
             # Ray actors' methods return futures, we don't use await here
             vector_store_actor.store_face.remote(
-                face_dict, collection_id, image_id, face_id, detection_id
+                face_dict, collection_id, image_key, face_id, detection_id
             )
 
         # Release memory for detection result
@@ -133,8 +134,8 @@ def process_face_image(vector_store_actor, collection_id: str,
 
         processing_time = time.time() - start_time
 
-        logger.info(f"Completed processing image {image_id} on CPU {cpu_num} "
-                    f"(final CPU: {final_cpu_percent:.1f}%, memory: {final_mem_info.rss / (1024 * 1024):.1f} MB) "
+        logger.info(f"Completed processing image {image_filename} "
+                    f"(final process CPU: {final_cpu_percent:.1f}%, memory: {final_mem_info.rss / (1024 * 1024):.1f} MB) "
                     f"in {processing_time:.2f}s")
 
         return {
@@ -157,6 +158,7 @@ def process_face_image(vector_store_actor, collection_id: str,
         }
     except Exception as e:
         # Re-raise other exceptions to be handled by the caller
+        image_filename = os.path.basename(image_key)
         logger.error(
-            f"Error in Ray task while processing image {image_id}: {str(e)}")
+            f"Error in Ray task while processing image {image_filename}: {str(e)}")
         raise

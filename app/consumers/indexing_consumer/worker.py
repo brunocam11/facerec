@@ -18,6 +18,7 @@ from app.consumers.indexing_consumer.processing_tasks import process_face_image
 from app.consumers.indexing_consumer.vector_store_actor import PineconeVectorStoreActor
 from app.core.config import settings
 from app.services.aws.s3 import S3Service
+from app.services.aws.s3 import StorageError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -109,50 +110,31 @@ def log_system_resources(context: str = "") -> Dict[str, Any]:
 
 
 async def download_s3_image(s3_service: S3Service, bucket: str, key: str, local_path: str) -> bool:
-    """Download an image from S3 to a local path using the S3Service.
+    """Download an image from S3.
 
     Args:
-        s3_service: S3Service instance
-        bucket: S3 bucket name
-        key: S3 object key
-        local_path: Local file path to save the image
+        s3_service: Initialized S3Service instance.
+        bucket: The S3 bucket name.
+        key: The S3 object key.
+        local_path: The local path to save the downloaded file.
 
     Returns:
-        bool: True if download successful, False otherwise
+        True if download was successful, False otherwise.
     """
+    logger.debug(f"Downloading s3://{bucket}/{key} to {local_path}")
     try:
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        logger.debug(f"Downloading S3 image {bucket}/{key} to {local_path}")
+        # Use the new download_file method for efficient streaming
+        await s3_service.download_file(bucket=bucket, key=key, file_path=local_path)
 
-        # Check and update bucket if needed
-        original_bucket = None
-        if s3_service.bucket_name != bucket:
-            original_bucket = s3_service.bucket_name
-            s3_service.bucket_name = bucket
-            # Need to re-initialize with the new bucket
-            await s3_service.initialize()
-
-        # Ensure S3 client is initialized
-        if not s3_service.initialized:
-            await s3_service.initialize()
-
-        # Use the proper S3Service method to download
-        # We'll use get_object since there's no direct download method
-        response = s3_service.s3.get_object(Bucket=bucket, Key=key)
-        content = response['Body'].read()
-
-        # Write to local file
-        with open(local_path, 'wb') as f:
-            f.write(content)
-
-        # Restore original bucket if we changed it
-        if original_bucket:
-            s3_service.bucket_name = original_bucket
-            await s3_service.initialize()
-
+        logger.info(f"Successfully downloaded s3://{bucket}/{key}")
         return True
+    except StorageError as e:
+        # Catch specific StorageError from our service
+        logger.error(f"S3 Storage Error downloading s3://{bucket}/{key}: {e}")
+        return False
     except Exception as e:
-        logger.error(f"Failed to download from S3 {bucket}/{key}: {str(e)}")
+        # Catch unexpected errors during download
+        logger.error(f"Unexpected error downloading s3://{bucket}/{key}", error=str(e), exc_info=True)
         return False
 
 
@@ -219,16 +201,18 @@ class MessageProcessor:
 
     async def initialize(self):
         """Initialize required services."""
+        # S3Service uses internal context manager, no explicit init needed here
         self.s3_service = S3Service(region_name=self.region)
-        await self.s3_service.initialize()
-        logger.info("S3 service initialized for async downloads")
+
+        logger.info("S3 service configured")
 
         if not ray.is_initialized():
             raise RuntimeError(
                 "Ray must be initialized before calling initialize_services")
 
         logger.info("Creating vector store actor")
-        self.vector_store_actor = PineconeVectorStoreActor.remote()
+        # Actor will initialize its own PineconeVectorStore internally
+        self.vector_store_actor = PineconeVectorStoreActor.remote() # Call without args
 
         log_system_resources("Service Initialization")
         logger.info("Services initialized and ready for processing")
@@ -237,10 +221,6 @@ class MessageProcessor:
         """Clean up resources."""
         try:
             log_system_resources("Shutdown")
-
-            if self.s3_service:
-                await self.s3_service.cleanup()
-                logger.info("S3 service cleaned up")
 
             if ray.is_initialized():
                 logger.info("Shutting down Ray...")
@@ -266,26 +246,26 @@ class MessageProcessor:
         try:
             # Extract indexing parameters
             collection_id = body.get('collection_id')
-            image_id = body.get('image_id')
             s3_bucket = body.get('s3_bucket')
-            s3_key = body.get('s3_key')
-            max_faces = body.get('max_faces', 5)
+            image_key = body.get('image_key')
+            max_faces = settings.MAX_FACES_PER_IMAGE
 
-            if not all([collection_id, image_id, s3_bucket, s3_key]):
+            if not all([collection_id, s3_bucket, image_key]):
                 raise ValueError("Missing required parameters in message body")
 
             logger.info(
-                f"Processing job {job_id}: image {image_id} for collection {collection_id}")
+                f"Processing job {job_id}: image {image_key} for collection {collection_id}")
 
             # Download image from S3
             temp_dir = f"/tmp/facerec/{job_id}"
             os.makedirs(temp_dir, exist_ok=True)
-            local_image_path = f"{temp_dir}/{os.path.basename(image_id)}"
+            local_image_path = f"{temp_dir}/{job_id}-{os.path.basename(image_key)}"
 
-            success = await download_s3_image(self.s3_service, s3_bucket, s3_key, local_image_path)
+            # Pass bucket and image_key directly to the download function
+            success = await download_s3_image(self.s3_service, s3_bucket, image_key, local_image_path)
             if not success:
                 raise RuntimeError(
-                    f"Failed to download image from S3: {s3_bucket}/{s3_key}")
+                    f"Failed to download image from S3: {s3_bucket}/{image_key}")
 
             try:
                 # Process image
@@ -297,7 +277,7 @@ class MessageProcessor:
                             process_face_image.remote(
                                 self.vector_store_actor,
                                 collection_id,
-                                image_id,
+                                image_key,
                                 image_bytes,
                                 max_faces
                             )
@@ -310,19 +290,19 @@ class MessageProcessor:
                     # Update stats
                     if face_count > 0:
                         logger.info(
-                            f"Successfully processed {image_id}: found {face_count} faces "
+                            f"Successfully processed {image_key}: found {face_count} faces "
                             f"in {processing_time:.2f}s"
                         )
                         self.images_with_faces += 1
                     else:
-                        logger.info(f"No faces detected in image {image_id}")
+                        logger.info(f"No faces detected in image {image_key}")
                         self.images_no_faces += 1
 
                     self.total_processing_time += processing_time
                     self.successful_processed += 1
 
                     logger.info(
-                        f"Job {job_id} progress: processed image {image_id} with {face_count} faces, "
+                        f"Job {job_id} progress: processed image {image_key} with {face_count} faces, "
                         f"collection_id={collection_id}"
                     )
 
@@ -426,7 +406,10 @@ async def process_messages(sqs_service, region: str) -> None:
                     success, job_id, receipt_handle, face_count, has_faces = result
                     if success:
                         logger.info(f"Successfully processed job {job_id}")
-                        await sqs_service.delete_message(receipt_handle)
+                        # Attempt to delete and check result
+                        deleted = await sqs_service.delete_message(receipt_handle)
+                        if not deleted:
+                            logger.warning(f"Failed to delete message for job {job_id} (receipt: {receipt_handle}). It might be processed again.")
                     else:
                         logger.error(
                             f"Processing failed for job {job_id}: {face_count}")

@@ -72,7 +72,10 @@ def setup_logging() -> None:
     logging.getLogger("botocore").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.INFO) # Or WARNING
 
-    root_logger.info("Logging setup complete", environment=settings.ENVIRONMENT, level=settings.LOG_LEVEL)
+    # Log confirmation
+    root_logger.info(
+        f"Logging setup complete. Environment: {settings.ENVIRONMENT}, Level: {settings.LOG_LEVEL}"
+    )
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

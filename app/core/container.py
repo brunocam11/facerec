@@ -76,9 +76,11 @@ class ServiceContainer:
             await self.sqs_service.cleanup()
             self.sqs_service = None
 
-        if self.s3_service:
-            await self.s3_service.cleanup()
-            self.s3_service = None
+        # S3Service cleanup is handled by its internal context manager
+        # if self.s3_service:
+        #     await self.s3_service.cleanup() # REMOVED
+        #     self.s3_service = None
+        self.s3_service = None # Still nullify the reference
 
         # Cleanup infrastructure services
         self.vector_store = None

@@ -7,7 +7,6 @@ import logging
 from typing import Dict, Any, Optional
 
 from app.domain.entities.face import Face
-from app.core.container import container
 from app.core.logging import get_logger
 from app.infrastructure.vectordb import PineconeVectorStore
 
@@ -15,27 +14,25 @@ logger = get_logger(__name__)
 
 @ray.remote
 class PineconeVectorStoreActor:
-    """Actor that wraps PineconeVectorStore to handle serialization issues."""
+    """Actor that wraps PineconeVectorStore, initializing it internally."""
     
     def __init__(self):
-        """Initialize a new PineconeVectorStore instance."""
-        self._vector_store: Optional[PineconeVectorStore] = None
-        logger.info(f"PineconeVectorStoreActor initialized")
-    
-    async def initialize(self) -> None:
-        """Initialize the vector store from the container."""
-        self._vector_store = container.vector_store
-        if not self._vector_store:
-            raise RuntimeError("Vector store not initialized in container")
+        """Initialize PineconeVectorStore *inside the actor*."""
+        try:
+            self._vector_store = PineconeVectorStore()
+            logger.info(f"PineconeVectorStoreActor initialized its own PineconeVectorStore")
+        except Exception as e:
+            logger.error(f"Failed to initialize PineconeVectorStore within actor: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize PineconeVectorStore within actor: {e}")
     
     async def store_face(self, face_dict: Dict[str, Any], collection_id: str, 
-                        image_id: str, face_id: str, detection_id: str) -> bool:
+                         image_key: str, face_id: str, detection_id: str) -> bool:
         """Store a face embedding in Pinecone.
         
         Args:
             face_dict: Dictionary representation of a Face object
             collection_id: ID of the collection
-            image_id: ID of the image
+            image_key: Full S3 object key of the image
             face_id: ID of the face
             detection_id: ID of the detection operation
             
@@ -49,7 +46,7 @@ class PineconeVectorStoreActor:
             embedding=np.array(face_dict["embedding"]) if face_dict["embedding"] is not None else None
         )
         
-        logger.debug(f"Storing face {face_id} for image {image_id} in collection {collection_id}")
+        logger.debug(f"Storing face {face_id} for image {image_key} in collection {collection_id}")
         
         if not self._vector_store:
             raise RuntimeError("Vector store not initialized")
@@ -58,8 +55,8 @@ class PineconeVectorStoreActor:
             await self._vector_store.store_face(
                 face=face,
                 collection_id=collection_id,
-                image_id=image_id,
-                face_id=face_id,
+                image_key=image_key,
+                face_detection_id=face_id,
                 detection_id=detection_id
             )
             logger.debug(f"Successfully stored face {face_id} in Pinecone")
@@ -69,7 +66,7 @@ class PineconeVectorStoreActor:
                 "Failed to store face in vector store",
                 error=str(e),
                 collection_id=collection_id,
-                image_id=image_id,
+                image_key=image_key,
                 exc_info=True
             )
             return False

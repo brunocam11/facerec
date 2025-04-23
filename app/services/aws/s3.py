@@ -3,6 +3,7 @@ S3 service for object storage operations using aioboto3.
 """
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, BinaryIO, Dict, List, Optional
+import os
 
 import aioboto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -57,14 +58,13 @@ class S3Service:
                     # await s3.head_bucket(Bucket=self.bucket_name)
                     # logger.info(f"Successfully connected to S3 bucket: {self.bucket_name}")
                     self._s3_client = s3
-                    yield s3  # Yield the initialized client
+                    yield s3
             except NoCredentialsError as e:
                 logger.error(
                     f"Failed to initialize S3: AWS credentials not found. {e}")
                 raise StorageError(
                     f"AWS credentials not found or configured correctly.")
             except ClientError as e:
-                # Simplified error handling for init within context manager
                 logger.error(f"Failed to initialize S3 client: {e}")
                 raise StorageError(f"Failed to initialize S3 client: {e}")
             except Exception as e:
@@ -72,11 +72,7 @@ class S3Service:
                     f"Unexpected error initializing S3 client: {e}", exc_info=True)
                 raise StorageError(f"Unexpected error initializing S3: {e}")
         else:
-            # Client already initialized, yield it
             yield self._s3_client
-
-    # Removed initialize and cleanup - handled by context manager
-    # Removed _ensure_initialized - replaced by _get_client context manager
 
     async def upload_file(self, file_obj: BinaryIO, key: str) -> str:
         """
@@ -275,3 +271,55 @@ class S3Service:
                 f"Unexpected error getting file from S3: {target_bucket}/{key} - {e}", exc_info=True)
             raise StorageError(
                 f"Unexpected error retrieving file: {key}") from e
+
+    async def download_file(self, bucket: str, key: str, file_path: str) -> None:
+        """Download an object directly to a file path asynchronously.
+
+        Args:
+            bucket: S3 bucket name
+            key: S3 object key
+            file_path: Local path to save the downloaded file
+
+        Raises:
+            StorageError: If file cannot be downloaded
+        """
+        target_bucket = bucket if bucket else self.bucket_name
+        if target_bucket != self.bucket_name:
+            logger.warning(
+                f"Downloading from S3 bucket '{target_bucket}' different from initialized bucket '{self.bucket_name}'")
+
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            async with self._get_client() as s3:
+                logger.debug(f"Starting download: s3://{target_bucket}/{key} to {file_path}")
+                await s3.download_file(
+                    Bucket=target_bucket,
+                    Key=key,
+                    Filename=file_path
+                )
+            logger.info(f"Successfully downloaded s3://{target_bucket}/{key} to {file_path}")
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code')
+            if error_code == '404' or 'Not Found' in str(e):
+                logger.warning(f"File not found during download attempt: s3://{target_bucket}/{key}")
+                raise StorageError(f"File not found: {key}") from e
+            elif error_code == 'NoSuchBucket':
+                 logger.error(
+                    f"Attempted to download from non-existent bucket: {target_bucket}")
+                 raise StorageError(f"Bucket not found: {target_bucket}") from e
+            elif error_code == '403' or "Forbidden" in str(e) or "Access Denied" in str(e):
+                logger.error(
+                    f"Access denied when downloading file: {target_bucket}/{key}. Check permissions. {e}")
+                raise StorageError(f"Access denied for file: {key}") from e
+            else:
+                logger.error(
+                    f"Failed to download file from S3 due to client error: {target_bucket}/{key} - {e}", exc_info=True)
+                raise StorageError(
+                    f"Failed to download file '{key}' due to S3 error: {e}") from e
+        except Exception as e:
+             logger.error(
+                f"Unexpected error downloading file from S3: {target_bucket}/{key} - {e}", exc_info=True)
+             raise StorageError(
+                f"Unexpected error downloading file: {key}") from e

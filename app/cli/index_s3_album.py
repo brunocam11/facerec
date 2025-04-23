@@ -137,7 +137,7 @@ class S3AlbumIndexer:
                     await self.vector_store.store_face(
                         face=face,
                         collection_id=self.collection_id,
-                        image_id=image_key,
+                        image_key=image_key,
                         face_id=face_id,
                         detection_id=detection_id,
                     )
