@@ -42,11 +42,21 @@ class ModelLoadError(FaceRecognitionError):
     pass
 
 
+class StorageError(FaceRecognitionError):
+    """Raised when there is an error accessing or storing data in storage services."""
+    pass
+
+
 class VectorStoreError(FaceRecognitionError):
     """Base exception for vector store operations."""
     pass
 
 
 class CollectionNotFoundError(VectorStoreError):
-    """Raised when attempting to access a non-existent collection."""
+    """Raised when the specified collection does not exist in the vector store."""
+    pass
+
+
+class ServiceNotInitializedError(FaceRecognitionError):
+    """Raised when a service is used before being properly initialized."""
     pass 

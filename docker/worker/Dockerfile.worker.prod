@@ -1,0 +1,67 @@
+FROM python:3.11-slim
+
+# Install system dependencies including C++ compiler and build tools
+RUN apt-get update && apt-get install -y \
+    git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    curl \
+    g++ \
+    build-essential \
+    cmake \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up working directory
+WORKDIR /app
+
+# Create model cache directory
+RUN mkdir -p /root/.model_cache
+ENV MODEL_CACHE_DIR=/root/.model_cache
+
+# Install dependencies directly with pip (bypassing Poetry)
+# Install core scientific libraries
+RUN pip install --no-cache-dir numpy cython wheel setuptools
+
+# Install computer vision libraries (required by InsightFace)
+RUN pip install --no-cache-dir opencv-python-headless onnxruntime
+
+# Install InsightFace (core face recognition library)
+# Pin albumentations version to avoid Pydantic compatibility issues
+RUN pip install --no-cache-dir albumentations==1.3.1
+RUN pip install --no-cache-dir insightface==0.7.3
+
+# Install Ray for distributed processing
+RUN pip install --no-cache-dir ray[default]==2.7.1
+
+# Install AWS and vector database libraries
+RUN pip install --no-cache-dir pinecone boto3
+
+# Install FastAPI and related libraries (needed for API dependencies)
+RUN pip install --no-cache-dir fastapi uvicorn
+
+# Install other utilities
+RUN pip install --no-cache-dir structlog python-multipart async_timeout requests psutil pydantic-settings
+
+# Environment variables declarations (values will be provided at runtime)
+ENV PYTHONPATH=/app
+ENV ENVIRONMENT=production
+ENV MAX_FACES_PER_IMAGE=
+ENV MIN_FACE_CONFIDENCE=
+ENV SIMILARITY_THRESHOLD=
+ENV PINECONE_API_KEY=
+ENV PINECONE_INDEX_NAME=
+ENV AWS_REGION=
+ENV AWS_S3_BUCKET=
+ENV AWS_S3_BUCKET_REGION=
+ENV SQS_QUEUE_NAME=
+ENV LOG_DIR=/app/logs
+
+# Create log directory
+RUN mkdir -p /app/logs
+
+# Copy the entire application (this layer changes most frequently)
+COPY . .
+
+# Command to run worker (no hot reloading)
+CMD ["python", "-m", "app.consumers.indexing_consumer.main"] 

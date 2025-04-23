@@ -17,11 +17,14 @@ setuptools = "^75.8.0"
 insightface = "^0.7.3"
 onnxruntime = "^1.17.0"
 pinecone-client = "^5.0.1"
-sqlalchemy = {extras = ["asyncio"], version = "^2.0.37"}
-asyncpg = "^0.30.0"
-alembic = "^1.14.1"
 opencv-python-headless = "^4.11.0.86"
 numpy = "^2.2.3"
+python-multipart = "^0.0.20"
+streamlit = "^1.42.2"
+requests = "^2.32.3"
+ray = "^2.43.0"
+psutil = "^7.0.0"
+aioboto3 = "^14.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"

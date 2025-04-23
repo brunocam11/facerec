@@ -1,0 +1,96 @@
+# Project Settings
+project_name = "facerec"
+environment  = "staging"
+aws_region   = "us-east-1"
+aws_profile  = "default"
+
+# ECR Repository
+ecr_repository_url = "431835747280.dkr.ecr.us-east-1.amazonaws.com/facerec-worker"
+
+# ECS Settings
+ecs_container_name = "facerec-worker"
+ecs_task_family    = "facerec-worker-task"
+ecs_service_name   = "facerec-worker-service"
+
+# Task Settings
+task_cpu    = 1024
+task_memory = 2048
+
+# S3 Settings
+s3_bucket_name   = "facerec-images"
+s3_bucket_region = "us-east-1"
+
+# Pinecone Settings
+pinecone_index_name  = "facerec-index"
+pinecone_api_key_arn = "arn:aws:secretsmanager:us-east-1:431835747280:secret:pinecone-api-key"
+
+# Face Recognition Settings
+max_faces_per_image     = "10"
+min_face_confidence     = "0.5"
+similarity_threshold    = "0.8"
+container_memory_threshold = "0.8"
+ray_memory_per_process  = "0.5"
+sqs_batch_size         = "10"
+
+# SQS Settings
+sqs_queue_arn = "arn:aws:sqs:us-east-1:431835747280:facerec-queue"
+
+# ECS Service Settings
+ecs_service_min_capacity = 0
+ecs_service_max_capacity = 10
+
+# Auto Scaling Settings
+target_value       = 1
+scale_in_cooldown  = 300
+scale_out_cooldown = 30
+
+# VPC Settings (optional)
+vpc_id             = ""
+private_subnet_ids = []
+security_group_ids = []
+
+# EC2 Settings
+instance_type = "t3.medium"
+ami_id        = "ami-0c7217cdde317cfec"  # Amazon ECS-Optimized Amazon Linux 2 AMI
+
+# ASG Settings
+asg_min_size         = 0
+max_asg_size         = 10
+asg_desired_capacity = 0
+
+# Instance Settings
+health_check_grace_period = 300
+instance_warmup_period    = 300
+
+# EBS Settings
+ebs_volume_size           = 30
+ebs_volume_type          = "gp3"
+ebs_delete_on_termination = true
+
+# Auto Scaling Configuration
+ecs_cluster_name   = "worker-cluster"
+fallback_instance_type = "m5.2xlarge"
+
+# SQS Configuration
+create_sqs_queue            = false # Set to true to create a new queue
+sqs_visibility_timeout      = 900   # 15 minutes
+sqs_message_retention_seconds = 345600 # 4 days
+
+# Face Recognition Settings
+max_faces_per_image = "10"
+min_face_confidence = "0.9"
+similarity_threshold = "0.8"
+
+# Required settings - you must set these values
+s3_bucket_name = "your-images-bucket"
+s3_bucket_region = "us-east-1"
+pinecone_index_name = "your-pinecone-index"
+
+# Secrets Management
+create_secrets = true  # Set to true to create new secrets, false to use existing ARNs
+
+# If create_secrets = true, fill this in (NEVER commit actual values to version control)
+# pinecone_api_key = "your-pinecone-api-key"
+
+# If create_secrets = false, provide ARN of existing secret
+# pinecone_api_key_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:facerec-pinecone-api-key-staging-123456" 
