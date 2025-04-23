@@ -1,4 +1,5 @@
 #!/bin/bash
+# Start the FastAPI API service for development.
 
 # Exit on error
 set -e
@@ -34,4 +35,10 @@ docker run -d \
 
 # Show logs
 echo "Container logs:"
-docker logs -f facerec-api 
+docker logs -f facerec-api
+
+echo "Starting API server (uvicorn)..."
+echo "Using .env file for configuration (handled by pydantic-settings)."
+echo "API will be available at http://0.0.0.0:8000"
+
+# Run uvicorn using the poetry environment 

@@ -55,13 +55,24 @@ facerec/
    poetry install
    ```
 
-3. Start services locally:
+3. Start services locally (choose ONE method):
+
+   **Method A: Using Development Scripts (Recommended)**
    ```bash
-   # Start API (runs on http://localhost:8000 by default)
-   poetry run ./scripts/dev/start-api.sh
+   # Start API
+   ./scripts/dev/run_dev_api.sh 
    
    # Start Worker (in another terminal)
-   poetry run ./scripts/dev/start-worker.sh
+   ./scripts/dev/run_dev_worker.sh
+   ```
+
+   **Method B: Running Manually (Without Scripts/Docker)**
+   ```bash
+   # 1. Start the API server (using Poetry environment)
+   #    poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+   # 2. Start the Indexing Worker (using Poetry environment, requires Ray)
+   #    poetry run python -m app.consumers.indexing_consumer.main
    ```
 
 4. Deploy to AWS:
@@ -196,6 +207,10 @@ We welcome contributions! Please see the `CONTRIBUTING.md` file for guidelines. 
 - Additional face recognition models
 - Performance optimizations
 - Documentation improvements
+
+## Future Improvements
+
+*   **Optional Indexing on Match:** Consider adding an option to the `/match` endpoint to optionally index the query face into a specified collection (potentially the same one being searched) after extracting its embedding.
 
 ## Important Considerations
 
